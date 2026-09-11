@@ -50,7 +50,15 @@ export const FIELD_TARGETS = {
   badLeadDate:      ['bad lead date'],
   smsReplyDate:     ['sms reply date', 'sms reply'],
   oppSoldDate:      ['opp sold date', 'opportunity sold date', 'sold date', 'date sold', 'policy sold date'],
-  quotedTimestamp:  ['quoted timestamp', 'quoted date', 'quote date', 'quoted'],
+  // No bare 'quoted' alias — audited across all 293 client accounts on
+  // 2026-09-12 and found it silently matched dollar-amount fields like
+  // "Total Quoted Premium" / "Quoted Premium" / "Quoted By" / "Quoted Policy
+  // Type" ahead of the real date field on 153 of 277 "fully matched"
+  // accounts (55%) — a false-positive match is worse than a visible "missing
+  // field" warning, since it looks fine but is computing quote rate off the
+  // wrong data entirely. Every one of those 153 accounts also has a real
+  // Quoted Timestamp/Date field, so removing the broad alias costs nothing.
+  quotedTimestamp:  ['quoted timestamp', 'quoted date', 'quote date'],
   xdatedReason:     ['x-dated reason', 'xdated reason', 'x dated reason', 'reason x-dated', 'x-date reason', 'x date reason'],
   leadProfile:      ['lead profile'],
   badLeadReason:    ['bad lead reason'],
