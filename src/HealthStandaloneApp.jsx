@@ -1,12 +1,8 @@
-import { useState, useEffect, Component } from 'react'
-import { ClerkProvider, SignedIn, SignedOut, SignIn, useUser, useClerk, useAuth } from '@clerk/clerk-react'
+import { useState, useEffect } from 'react'
 import { RoleContext } from './contexts/RoleContext'
 import HealthDashboard from './components/health/HealthDashboard'
+import JarvisChat      from './components/health/JarvisChat'
 import LoginPage       from './components/health/LoginPage'
-
-const CLERK_KEY = import.meta.env.VITE_CLERK_ENABLED === 'true'
-  ? import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
-  : null
 
 const COOKIE = 'lgm-health-auth'
 function getSessionCookie() {
@@ -15,6 +11,20 @@ function getSessionCookie() {
     .map(c => c.trim())
     .find(c => c.startsWith(COOKIE + '='))
     ?.slice(COOKIE.length + 1) || null
+}
+
+// Decode role from Google OAuth cookie (format: g.{base64url(email:role)}.{sig})
+function getRoleFromCookie(cookie) {
+  if (!cookie) return 'admin'
+  if (cookie.startsWith('g.')) {
+    try {
+      const payload = cookie.split('.')[1]
+      const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+      const role    = decoded.split(':')[1]
+      return role === 'account_manager' ? 'account_manager' : 'admin'
+    } catch { return 'admin' }
+  }
+  return 'admin'  // old password cookie → always admin
 }
 
 function LogoMark() {
@@ -49,16 +59,39 @@ function LogoMark() {
 }
 
 function DashboardShell({ onSignOut }) {
+  const [activeTab, setActiveTab] = useState('health')
   const [healthFilters, setHealthFilters] = useState({
     search: '', typeFilter: 'all', bandFilter: 'all', billingFilter: 'all',
     dateRange: { type: 'all', from: '', to: '' },
   })
+
+  const tabs = [
+    { id: 'health', label: 'Customer Health' },
+    { id: 'jarvis', label: '✦ Jarvis' },
+  ]
+
   return (
     <div className="min-h-screen bg-brand-bg text-brand-text">
       <header className="sticky top-0 z-50 bg-white border-b border-brand-border"
         style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06)', borderTop: '3px solid #8CC63F' }}>
-        <div className="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 h-[60px] flex items-center justify-between">
+        <div className="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 h-[60px] flex items-center justify-between gap-4">
           <LogoMark />
+          {/* Tab switcher */}
+          <div className="flex items-center bg-brand-bg rounded-xl p-1 border border-brand-border">
+            {tabs.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`px-4 py-1.5 rounded-lg text-[12px] font-medium transition-all ${
+                  activeTab === t.id
+                    ? 'bg-white text-brand-heading shadow-sm border border-brand-border'
+                    : 'text-brand-muted hover:text-brand-heading'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
           <button
             onClick={onSignOut}
             className="text-[11px] text-brand-muted hover:text-brand-heading transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-bg border border-transparent hover:border-brand-border"
@@ -67,7 +100,14 @@ function DashboardShell({ onSignOut }) {
           </button>
         </div>
       </header>
-      <HealthDashboard filters={healthFilters} setFilters={setHealthFilters} />
+
+      {activeTab === 'health' && (
+        <HealthDashboard filters={healthFilters} setFilters={setHealthFilters} />
+      )}
+      {activeTab === 'jarvis' && (
+        <JarvisChat />
+      )}
+
       <footer className="mt-12 py-5 border-t border-brand-border text-center text-[11px] text-brand-muted/60 tracking-widest uppercase">
         Little Giant Marketing &mdash; Customer Health Dashboard
       </footer>
@@ -75,110 +115,33 @@ function DashboardShell({ onSignOut }) {
   )
 }
 
-// ─── Clerk sign-in page styling ───────────────────────────────────────────────
-const clerkAppearance = {
-  elements: {
-    rootBox: 'w-full',
-    card: 'shadow-none border border-brand-border rounded-2xl bg-white',
-    headerTitle: 'text-brand-heading font-bold',
-    headerSubtitle: 'text-brand-muted',
-    formButtonPrimary: 'bg-[#8CC63F] hover:bg-[#7ab535] text-white',
-    footerActionLink: 'text-[#8CC63F] hover:text-[#7ab535]',
-  },
-}
-
-// ─── Lives inside ClerkProvider — handles loading timeout + auth UI ───────────
-function ClerkInner({ onFallback }) {
-  const { isLoaded } = useAuth()
-  const { signOut }  = useClerk()
-  const { user }     = useUser()
-
-  // If Clerk hasn't finished initializing within 7 seconds, fall back to legacy auth
-  useEffect(() => {
-    if (isLoaded) return
-    const t = setTimeout(onFallback, 7000)
-    return () => clearTimeout(t)
-  }, [isLoaded, onFallback])
-
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-brand-bg flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div
-            className="w-7 h-7 rounded-full border-[3px] border-[#8CC63F] border-t-transparent"
-            style={{ animation: 'spin 0.8s linear infinite' }}
-          />
-          <p className="text-brand-muted text-xs tracking-wide">Loading…</p>
-        </div>
-      </div>
-    )
-  }
-
-  const role = user?.publicMetadata?.role || 'account_manager'
-  return (
-    <RoleContext.Provider value={{ role, isAdmin: role === 'admin', isLoaded: true }}>
-      <SignedOut>
-        <div className="min-h-screen flex flex-col items-center justify-center bg-brand-bg p-4">
-          <div className="mb-8 flex justify-center">
-            <LogoMark />
-          </div>
-          <div className="w-full max-w-sm">
-            <SignIn routing="hash" afterSignInUrl="/" appearance={clerkAppearance} />
-          </div>
-        </div>
-      </SignedOut>
-      <SignedIn>
-        <DashboardShell onSignOut={() => signOut({ redirectUrl: '/' })} />
-      </SignedIn>
-    </RoleContext.Provider>
-  )
-}
-
-// ─── Legacy password+cookie auth ─────────────────────────────────────────────
-function LegacyAuthApp() {
+// ─── Auth app — Google OAuth + cookie-based role ──────────────────────────────
+function AuthApp() {
   const params      = new URLSearchParams(window.location.search)
   const loginForced = params.get('login') === '1'
-  const hasCookie   = !!getSessionCookie()
-  const [authed, setAuthed] = useState(!loginForced && hasCookie)
+  const cookie      = getSessionCookie()
+  const [authed, setAuthed] = useState(!loginForced && !!cookie)
 
   function handleLoginSuccess() {
     setAuthed(true)
     const url = new URL(window.location.href)
     url.searchParams.delete('login')
+    url.searchParams.delete('error')
     window.history.replaceState({}, '', url.toString())
   }
 
   if (!authed) return <LoginPage onSuccess={handleLoginSuccess} />
 
+  const role = getRoleFromCookie(getSessionCookie())
   return (
-    <RoleContext.Provider value={{ role: 'admin', isAdmin: true, isLoaded: true }}>
+    <RoleContext.Provider value={{ role, isAdmin: role === 'admin', isLoaded: true }}>
       <DashboardShell onSignOut={() => { window.location.href = '/api/auth?logout=1' }} />
     </RoleContext.Provider>
   )
 }
 
-// ─── Error boundary: catches synchronous render errors from Clerk ─────────────
-class ClerkErrorBoundary extends Component {
-  constructor(props) { super(props); this.state = { failed: false } }
-  static getDerivedStateFromError() { return { failed: true } }
-  render() {
-    if (this.state.failed) return <LegacyAuthApp />
-    return this.props.children
-  }
-}
-
 // ─── Root ─────────────────────────────────────────────────────────────────────
 export default function HealthStandaloneApp() {
   useEffect(() => { document.title = 'LGM — Customer Health Dashboard' }, [])
-  const [useLegacy, setUseLegacy] = useState(false)
-
-  if (!CLERK_KEY || useLegacy) return <LegacyAuthApp />
-
-  return (
-    <ClerkErrorBoundary>
-      <ClerkProvider publishableKey={CLERK_KEY}>
-        <ClerkInner onFallback={() => setUseLegacy(true)} />
-      </ClerkProvider>
-    </ClerkErrorBoundary>
-  )
+  return <AuthApp />
 }
