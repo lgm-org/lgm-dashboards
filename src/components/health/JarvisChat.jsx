@@ -1,32 +1,36 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { subDays, format } from 'date-fns'
 import { useMergedHealthData } from '../../hooks/useMergedHealthData'
-import { scoreAccount, classify, isAtRisk, isUpsellReady, suggestAddon } from '../../lib/healthEngine'
+import { useLogoChurn }        from '../../hooks/useLogoChurn'
+import {
+  scoreAccount, classify, isAtRisk, isUpsellReady, suggestAddon, recommendAction,
+} from '../../lib/healthEngine'
 
 const SAMPLE_QUESTIONS = [
-  'Which accounts are most at risk of churning this month?',
-  'Who are my top upsell opportunities right now?',
-  'What is our current MRR and how many accounts are Stripe-matched?',
-  'Show me all accounts that cancelled in the last 90 days.',
-  'How does our churn rate compare across 30, 60, and 90-day cohorts?',
-  'Which DM accounts have the lowest health scores?',
+  'Which accounts are most at risk right now?',
+  'Show me all accounts scheduled to cancel.',
+  'Who are my top upsell opportunities and how much MRR could we add?',
+  'What is our current MRR breakdown by health band?',
+  'Show me all DM accounts with a health score below 50.',
+  'What does our churn look like across 30, 60, and 90-day cohorts?',
+  'Which states have the most at-risk accounts?',
+  'Are there any urgent open support tickets?',
 ]
 
-const DATA_SOURCES = [
-  { icon: '🔗', label: 'GHL', desc: '280+ sub-accounts', done: true },
-  { icon: '💳', label: 'Stripe', desc: 'Billing & subscriptions', done: true },
-  { icon: '📞', label: 'Call Intel', desc: 'Call records & outcomes', done: false },
-  { icon: '🎫', label: 'Freshdesk', desc: 'Support tickets', done: false },
-  { icon: '📊', label: 'LC Wallet', desc: "Cliff's LC data", done: false },
+const DATA_SOURCES_CONFIG = [
+  { icon: '🔗', label: 'GHL',        desc: 'All sub-accounts',      key: 'ghl'       },
+  { icon: '💳', label: 'Stripe',     desc: 'Billing & MRR',         key: 'stripe'    },
+  { icon: '📊', label: 'Logo Churn', desc: "Cliff's monthly model",  key: 'logoChurn' },
+  { icon: '🎫', label: 'Freshdesk',  desc: 'Support tickets',        key: 'freshdesk' },
+  { icon: '📞', label: 'Call Intel', desc: 'Call records',           key: 'calls'     },
 ]
 
+// ── Sub-components ────────────────────────────────────────────────────────────
 function TypingDots() {
   return (
     <div className="flex items-center gap-1 px-4 py-3">
       {[0, 1, 2].map(i => (
-        <span
-          key={i}
-          className="w-1.5 h-1.5 rounded-full bg-brand-muted/50"
+        <span key={i} className="w-1.5 h-1.5 rounded-full bg-brand-muted/50"
           style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
         />
       ))}
@@ -61,37 +65,52 @@ function MessageBubble({ msg }) {
   )
 }
 
-function DataSourceGrid({ sources, show }) {
+function DataSourceGrid({ connected, show }) {
   if (!show) return null
   return (
     <div className="mb-6 grid grid-cols-2 sm:grid-cols-5 gap-2">
-      {sources.map(({ icon, label, desc, done }) => (
-        <div key={label}
-          className="bg-white border border-brand-border rounded-xl p-3 flex flex-col items-center text-center gap-1.5 relative overflow-hidden">
-          <span className="text-xl">{icon}</span>
-          <span className="text-[11px] font-semibold text-brand-heading">{label}</span>
-          <span className="text-[10px] text-brand-muted leading-tight">{desc}</span>
-          <div className={`w-1.5 h-1.5 rounded-full mt-0.5 ${done ? 'bg-[#8CC63F]' : 'bg-amber-400'}`} />
-          <span className={`text-[9px] font-medium ${done ? 'text-[#8CC63F]' : 'text-amber-600'}`}>
-            {done ? 'Connected' : 'Pending'}
-          </span>
-        </div>
-      ))}
+      {DATA_SOURCES_CONFIG.map(({ icon, label, desc, key }) => {
+        const done = connected[key] ?? false
+        return (
+          <div key={label}
+            className="bg-white border border-brand-border rounded-xl p-3 flex flex-col items-center text-center gap-1.5">
+            <span className="text-xl">{icon}</span>
+            <span className="text-[11px] font-semibold text-brand-heading">{label}</span>
+            <span className="text-[10px] text-brand-muted leading-tight">{desc}</span>
+            <div className={`w-1.5 h-1.5 rounded-full mt-0.5 ${done ? 'bg-[#8CC63F]' : 'bg-amber-400'}`} />
+            <span className={`text-[9px] font-medium ${done ? 'text-[#8CC63F]' : 'text-amber-600'}`}>
+              {done ? 'Connected' : 'Pending'}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
 export default function JarvisChat() {
-  const { accounts: rawAccounts, loading: dataLoading } = useMergedHealthData()
+  const { accounts: rawAccounts, loading: ghlLoading } = useMergedHealthData()
+  const logoChurn = useLogoChurn()
 
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: "Hi — I'm Jarvis, LGM's internal AI analyst.\n\nI'm connected to your GHL sub-account database and Stripe billing. Ask me anything about account health, churn risk, MRR, upsell opportunities, or recent cancellations across all accounts.",
-    },
-  ])
-  const [input, setInput]           = useState('')
-  const [loading, setLoading]       = useState(false)
+  const [fdTickets, setFdTickets] = useState(null)
+  const [fdLoading, setFdLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/freshdesk-summary')
+      .then(r => r.json())
+      .then(d => { if (!d.error) setFdTickets(d) })
+      .catch(() => {})
+      .finally(() => setFdLoading(false))
+  }, [])
+
+  const [messages, setMessages] = useState([{
+    role: 'assistant',
+    intro: true,
+    content: "Hi — I'm Jarvis, LGM's internal AI analyst.\n\nI'm connected to your GHL sub-account database, Stripe billing, logo churn model, and Freshdesk support tickets. Ask me anything about any account, churn trends, MRR, upsell opportunities, or support issues.",
+  }])
+  const [input,       setInput]       = useState('')
+  const [loading,     setLoading]     = useState(false)
   const [showSamples, setShowSamples] = useState(true)
   const bottomRef = useRef(null)
   const inputRef  = useRef(null)
@@ -100,98 +119,94 @@ export default function JarvisChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── Build compact context from live account data ─────────────────────────────
-  const jarvisContext = useMemo(() => {
+  // ── Build compact account list for API ──────────────────────────────────────
+  const jarvisData = useMemo(() => {
     if (!rawAccounts || rawAccounts.length === 0) return null
 
-    const maxRev = Math.max(...rawAccounts.map(a => a.totalRev || 0), 1)
+    const today  = new Date()
 
     const accounts = rawAccounts.map(a => {
-      const score = scoreAccount(a, { maxRev })
+      const { score } = scoreAccount(a)
+      const band      = classify(score)
+      const addon     = suggestAddon(a)
+      const action    = recommendAction(a)
       return {
-        ...a,
-        _score: score,
-        _band:  classify(score),
-        _atRisk:  isAtRisk(a),
-        _upsell:  isUpsellReady(a),
-        _addon:   suggestAddon(a),
+        id:         a.ghlId,
+        name:       a.accountName,
+        type:       a.accountType || 'Unknown',
+        band,
+        score:      Math.round(score),
+        mrr:        a.planPrice     || 0,
+        users:      a.users         || 0,
+        txns:       a.transactions  || 0,
+        start:      a.stripeStartDate || a.ghlDateAdded || null,
+        cancel:     a.canceledAt    || null,
+        pending:    !!(a.stripeCanceling && !a.canceledAt),
+        state:      a.ghlState      || null,
+        email:      a.ghlEmail      || null,
+        lastActive: a.lastActivity  ?? null,
+        addon:      addon?.label    || null,
+        estExtra:   addon?.estExtra || 0,
+        action,
       }
     })
 
-    const stripeMatched = accounts.filter(a => a._stripeBound)
-    const totalMRR      = stripeMatched.reduce((s, a) => s + (a.planPrice || 0), 0)
-
-    const healthy  = accounts.filter(a => a._band === 'healthy').length
-    const watch    = accounts.filter(a => a._band === 'watch').length
-    const atRisk   = accounts.filter(a => a._band === 'at_risk').length
-    const dmCount  = accounts.filter(a => a.accountType === 'DM').length
-    const agentCount = accounts.filter(a => a.accountType === 'Agent').length
-
-    const today = new Date()
+    const active        = accounts.filter(a => !a.cancel)
+    const stripeMatched = accounts.filter(a => (a.mrr || 0) > 0)
+    const totalMRR      = active.reduce((s, a) => s + (a.mrr || 0), 0)
+    const healthy       = accounts.filter(a => a.band === 'healthy').length
+    const watch         = accounts.filter(a => a.band === 'watch').length
+    const atRisk        = accounts.filter(a => a.band === 'at_risk').length
+    const dmCount       = active.filter(a => a.type === 'DM').length
+    const agentCount    = active.filter(a => a.type === 'Agent').length
+    const scheduled     = active.filter(a => a.pending).length
 
     function cohortChurn(days) {
       const cutoff = format(subDays(today, days), 'yyyy-MM-dd')
       const cohort = accounts.filter(a => {
-        const start = a.stripeStartDate || a.ghlDateAdded || ''
-        return a._stripeBound && start >= cutoff
+        const start = a.start || ''
+        return (a.mrr > 0) && start >= cutoff
       })
-      const churned = cohort.filter(a => !!a.canceledAt)
+      const churned = cohort.filter(a => !!a.cancel)
       return cohort.length > 0 ? Math.round((churned.length / cohort.length) * 1000) / 10 : null
     }
 
-    const topAtRisk = accounts
-      .filter(a => a._atRisk && !a.canceledAt)
-      .sort((a, b) => a._score - b._score)
-      .slice(0, 15)
-      .map(a => ({
-        name: a.accountName,
-        score: Math.round(a._score),
-        mrr: a.planPrice || 0,
-        type: a.accountType || '—',
-        issue: a.transactions < 3500 ? 'Low transactions (<3500/mo)' : 'Low health score',
-      }))
-
-    const topUpsell = accounts
-      .filter(a => a._upsell && !a.canceledAt)
-      .sort((a, b) => (b._addon?.estExtra || 0) - (a._addon?.estExtra || 0))
-      .slice(0, 10)
-      .map(a => ({
-        name: a.accountName,
-        score: Math.round(a._score),
-        mrr: a.planPrice || 0,
-        estExtra: a._addon?.estExtra || 0,
-        addon: a._addon?.addon || 'N/A',
-      }))
-
-    const cutoff90 = format(subDays(today, 90), 'yyyy-MM-dd')
-    const recentCancellations = accounts
-      .filter(a => a.canceledAt && a.canceledAt >= cutoff90)
-      .sort((a, b) => (b.canceledAt || '').localeCompare(a.canceledAt || ''))
-      .slice(0, 15)
-      .map(a => ({
-        name: a.accountName,
-        mrr: a.planPrice || 0,
-        canceledAt: a.canceledAt,
-        type: a.accountType || '—',
-      }))
-
-    return {
-      asOf: format(today, 'yyyy-MM-dd'),
+    const summary = {
+      asOf:          format(today, 'yyyy-MM-dd'),
       totalAccounts: accounts.length,
       stripeMatched: stripeMatched.length,
       healthy, watch, atRisk,
       totalMRR,
+      avgMRR:        stripeMatched.length > 0 ? Math.round(totalMRR / stripeMatched.length) : 0,
       dmCount, agentCount,
+      scheduledCancel: scheduled,
       cohort30: cohortChurn(30),
       cohort60: cohortChurn(60),
       cohort90: cohortChurn(90),
-      logoChurnLastMonth: null,
-      logoChurnAvg6m:     null,
-      topAtRisk, topUpsell, recentCancellations,
+      openTickets: fdTickets?.openCount ?? null,
     }
-  }, [rawAccounts])
 
-  // ── Send message ─────────────────────────────────────────────────────────────
+    const tickets = fdTickets?.tickets || []
+
+    return {
+      summary,
+      accounts,
+      tickets,
+      logoChurn: logoChurn.data || null,
+    }
+  }, [rawAccounts, fdTickets, logoChurn.data])
+
+  const connected = {
+    ghl:        !ghlLoading && !!jarvisData,
+    stripe:     !ghlLoading && !!(jarvisData?.accounts?.some(a => a.mrr > 0)),
+    logoChurn:  !logoChurn.loading && !!logoChurn.data,
+    freshdesk:  !fdLoading && !!fdTickets,
+    calls:      false,
+  }
+
+  const isReady = !ghlLoading && !!jarvisData
+
+  // ── Send message ───────────────────────────────────────────────────────────
   async function handleSend(text) {
     const q = (text || input).trim()
     if (!q || loading) return
@@ -199,10 +214,11 @@ export default function JarvisChat() {
     setShowSamples(false)
     setLoading(true)
 
-    const history = messages.filter(m => !m.typing)
+    // Exclude the intro greeting from API messages (API requires user-first alternation)
+    const history    = messages.filter(m => !m.typing && !m.intro)
     const nextHistory = [...history, { role: 'user', content: q }]
 
-    setMessages([...nextHistory, { role: 'assistant', typing: true, content: '' }])
+    setMessages([...messages.filter(m => !m.typing), { role: 'user', content: q }, { role: 'assistant', typing: true, content: '' }])
 
     try {
       const res = await fetch('/api/jarvis-chat', {
@@ -210,14 +226,14 @@ export default function JarvisChat() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: nextHistory.map(m => ({ role: m.role, content: m.content })),
-          context:  jarvisContext,
+          data:     jarvisData,
         }),
       })
 
-      const data  = await res.json()
+      const body  = await res.json()
       const reply = res.ok
-        ? (data.content || 'No response received.')
-        : (data.error   || `Error ${res.status} — please try again.`)
+        ? (body.content || 'No response received.')
+        : (body.error   || `Error ${res.status}`)
 
       setMessages(prev => {
         const copy = [...prev]
@@ -242,21 +258,19 @@ export default function JarvisChat() {
     }
   }
 
-  const isReady = !dataLoading && !!jarvisContext
-
   return (
     <div className="max-w-3xl mx-auto px-4 pb-8 flex flex-col" style={{ minHeight: 'calc(100vh - 160px)' }}>
 
-      {/* Status banner — shown only while data is loading */}
-      {dataLoading && (
-        <div className="mt-6 mb-6 flex items-center gap-2.5 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-800">
-          <span className="text-base flex-shrink-0">⏳</span>
-          <span>Loading account data…</span>
+      {/* Loading indicator while GHL data initialises */}
+      {ghlLoading && (
+        <div className="mt-6 mb-4 flex items-center gap-2 text-xs text-brand-muted">
+          <span className="w-3 h-3 rounded-full border-2 border-brand-green border-t-transparent animate-spin" />
+          Loading account data…
         </div>
       )}
 
       {/* Data sources grid */}
-      <DataSourceGrid sources={DATA_SOURCES} show={showSamples} />
+      <DataSourceGrid connected={connected} show={showSamples} />
 
       {/* Chat area */}
       <div className="flex-1 min-h-0 overflow-y-auto mb-4">
@@ -272,13 +286,9 @@ export default function JarvisChat() {
           <p className="text-[11px] text-brand-muted font-medium mb-2 tracking-wide uppercase">Try asking:</p>
           <div className="flex flex-wrap gap-2">
             {SAMPLE_QUESTIONS.map((q, i) => (
-              <button
-                key={i}
-                onClick={() => handleSend(q)}
-                disabled={!isReady}
+              <button key={i} onClick={() => handleSend(q)} disabled={!isReady}
                 className="text-[12px] bg-white border border-brand-border text-brand-text rounded-full px-3 py-1.5
-                  hover:border-[#8CC63F] hover:text-[#8CC63F] transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed"
-              >
+                  hover:border-[#8CC63F] hover:text-[#8CC63F] transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed">
                 {q}
               </button>
             ))}
@@ -294,7 +304,7 @@ export default function JarvisChat() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isReady ? 'Ask about your accounts, churn, MRR, upsell…' : 'Loading data…'}
+          placeholder={isReady ? 'Ask about any account, churn, MRR, tickets, upsell…' : 'Loading data…'}
           disabled={!isReady}
           rows={1}
           className="flex-1 resize-none text-sm text-brand-text placeholder-brand-muted/60 outline-none bg-transparent leading-relaxed disabled:cursor-not-allowed"
@@ -312,8 +322,9 @@ export default function JarvisChat() {
           </svg>
         </button>
       </div>
+
       <p className="text-center text-[10px] text-brand-muted/50 mt-2">
-        GHL + Stripe connected · Call Intelligence and Freshdesk coming soon
+        GHL · Stripe · Logo Churn · Freshdesk · Call Intelligence coming soon
       </p>
 
       <style>{`
