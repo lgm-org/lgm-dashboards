@@ -19,6 +19,8 @@ import TransactionBreakdown       from './TransactionBreakdown'
 import TicketsModal               from './TicketsModal'
 import DmFootprintTab             from './DmFootprintTab'
 import ChurnMetrics              from './ChurnMetrics'
+import LogoChurnChart           from './LogoChurnChart'
+import { useLogoChurn }         from '../../hooks/useLogoChurn'
 
 const G = '#8CC63F'
 
@@ -103,6 +105,7 @@ export default function HealthDashboard({ filters, setFilters }) {
   const { accounts: raw, loading, stripeLoading, error, lastUpdated, refetch } = useMergedHealthData()
   const { statuses, setStatus } = useAccountStatus()
   const { dmMap, dmLoaded }     = useDmAgentMap()
+  const logoChurn               = useLogoChurn()
   const [selectedAccount, setSelectedAccount] = useState(null)
   const [activeSubTab, setActiveSubTab]       = useState('overview')
   const [elapsed, setElapsed] = useState('—')
@@ -531,7 +534,16 @@ export default function HealthDashboard({ filters, setFilters }) {
         />
       )}
 
-      {/* 3. Quick Wins — stale, upsell, newest */}
+      {/* 3. Logo Churn — Cliff's monthly model, admin only */}
+      {isAdmin && (
+        <LogoChurnChart
+          data={logoChurn.data}
+          loading={logoChurn.loading}
+          error={logoChurn.error}
+        />
+      )}
+
+      {/* 4. Quick Wins — stale, upsell, newest */}
       <QuickWins
         topStale={top3Stale}
         topNew={top3New}
