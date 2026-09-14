@@ -1,23 +1,10 @@
-// Matches QuickSight's tab structure (Lead Details, Sales Board, Lead
-// Analytics, etc.) so the eventual full build has the same shape — but
-// styled in LGM's own brand system rather than copying QuickSight's dark
-// navy look, same "custom because branding matters" rule as everything
-// else in this dashboard. Only "Lead Details" has content; every other tab
-// is a placeholder until it gets built out.
+// Per John/Syed (2026-09-15): every other tab was a placeholder with no
+// content yet, so they're hidden from the tab bar until each one actually
+// gets built — only re-add an entry here once that tab has real content.
+// The underlying EmptyTabScreen/activeTab plumbing in MasterDashboard.jsx is
+// untouched, so restoring a tab later is a one-line change back.
 export const TABS = [
   { key: 'lead-details',       label: 'Lead Details' },
-  { key: 'sales-board',        label: 'Sales Board' },
-  { key: 'lead-analytics',     label: 'Lead Analytics' },
-  { key: 'bad-lead-trends',    label: 'Bad Lead Trends' },
-  { key: 'marketing-weekly',   label: 'Marketing Weekly' },
-  { key: 'sales-weekly',       label: 'Sales Weekly' },
-  { key: 'marketing-monthly',  label: 'Marketing Monthly' },
-  { key: 'sales-monthly',      label: 'Sales Monthly' },
-  { key: 'marketing-quarterly',label: 'Marketing Quarterly' },
-  { key: 'sales-quarterly',    label: 'Sales Quarterly' },
-  { key: '12-week-plan',       label: '12-Week Plan' },
-  { key: 'cohort',             label: 'Cohort' },
-  { key: 'trends',             label: 'Trends' },
 ]
 
 export default function MasterTabBar({ active, onChange }) {
