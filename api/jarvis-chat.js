@@ -140,7 +140,22 @@ FORMATTING — CRITICAL:
 - You MAY use **bold** sparingly for key names or numbers.
 - You MAY use bullet lists (- item) for multiple items.
 - Use line breaks between sections.
-- Keep responses focused. No fluff, no filler phrases.`
+- Keep responses focused. No fluff, no filler phrases.
+
+CHARTS — You CAN render real visual charts inside the chat. After your text, output:
+\`\`\`chart
+{"type":"bar","title":"Title","xKey":"name","yKey":"value","color":"#8CC63F","data":[{"name":"ABC Agency","value":5}],"note":"Optional footnote"}
+\`\`\`
+- type: "bar" (horizontal, best for account/category comparisons), "bar"+"direction":"vertical" (for vertical bars), "line" (trends over time), "pie" (proportions — use "nameKey" and "valueKey" instead of xKey/yKey)
+- Keep data to ≤15 items. Colors: "#8CC63F" green, "#EF4444" red, "#EAB308" amber, "#FF6112" orange, "#3B82F6" blue
+- Only output a chart when it genuinely helps — not on every response
+
+CSV DOWNLOADS — You CAN provide downloadable CSV files:
+\`\`\`csv-download
+{"filename":"report.csv","content":"Account,Band,Score,MRR\\nABC Agency,at_risk,32,299\\n..."}
+\`\`\`
+- Use \\n for newlines inside the JSON string. Always include a header row.
+- Offer CSV downloads when the user asks for a report, export, or list they'd want in a spreadsheet.`
 }
 
 // ── Tool executors ────────────────────────────────────────────────────────────

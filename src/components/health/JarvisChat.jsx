@@ -5,6 +5,10 @@ import { useLogoChurn }        from '../../hooks/useLogoChurn'
 import {
   scoreAccount, classify, isUpsellReady, suggestAddon, recommendAction,
 } from '../../lib/healthEngine'
+import {
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
 
 // ── Cookie helpers ────────────────────────────────────────────────────────────
 function getUserEmail() {
@@ -77,6 +81,147 @@ function MarkdownText({ text }) {
   return <div className="space-y-0.5">{result}</div>
 }
 
+// ── Inline chart block ────────────────────────────────────────────────────────
+const JARVIS_COLORS = ['#8CC63F','#FF6112','#3B82F6','#EAB308','#EF4444','#8B5CF6','#06B6D4','#84CC16']
+
+function ChartBlock({ spec }) {
+  const { type = 'bar', title, xKey, yKey, nameKey, valueKey, data = [], color, note, direction } = spec
+  if (!data?.length) return null
+  const c = color || JARVIS_COLORS[0]
+
+  if (type === 'pie') {
+    const nk = nameKey || xKey || Object.keys(data[0])[0]
+    const vk = valueKey || yKey || Object.keys(data[0])[1]
+    return (
+      <div className="bg-brand-bg/40 border border-brand-border rounded-xl p-4 my-3">
+        {title && <p className="text-[11px] font-semibold text-brand-heading mb-3">{title}</p>}
+        <ResponsiveContainer width="100%" height={200}>
+          <PieChart>
+            <Pie data={data} dataKey={vk} nameKey={nk} cx="50%" cy="50%" outerRadius={75}
+              label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false}>
+              {data.map((_, i) => <Cell key={i} fill={JARVIS_COLORS[i % JARVIS_COLORS.length]} />)}
+            </Pie>
+            <Tooltip formatter={v => typeof v === 'number' ? v.toLocaleString() : v} />
+          </PieChart>
+        </ResponsiveContainer>
+        {note && <p className="text-[10px] text-brand-muted mt-2 italic">{note}</p>}
+      </div>
+    )
+  }
+
+  if (type === 'line') {
+    return (
+      <div className="bg-brand-bg/40 border border-brand-border rounded-xl p-4 my-3">
+        {title && <p className="text-[11px] font-semibold text-brand-heading mb-3">{title}</p>}
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={data} margin={{ top: 5, right: 8, left: -20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7E5" vertical={false} />
+            <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} />
+            <Tooltip />
+            <Line type="monotone" dataKey={yKey} stroke={c} strokeWidth={2} dot={{ r: 3, fill: c }} activeDot={{ r: 5 }} />
+          </LineChart>
+        </ResponsiveContainer>
+        {note && <p className="text-[10px] text-brand-muted mt-2 italic">{note}</p>}
+      </div>
+    )
+  }
+
+  // bar — horizontal by default (good for named categories), vertical if direction="vertical"
+  const isVertical = direction === 'vertical'
+  const barH = isVertical ? 200 : Math.max(160, Math.min(data.length * 28, 320))
+  return (
+    <div className="bg-brand-bg/40 border border-brand-border rounded-xl p-4 my-3">
+      {title && <p className="text-[11px] font-semibold text-brand-heading mb-3">{title}</p>}
+      <ResponsiveContainer width="100%" height={barH}>
+        {isVertical ? (
+          <BarChart data={data} margin={{ top: 5, right: 8, left: -20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7E5" vertical={false} />
+            <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} />
+            <Tooltip />
+            <Bar dataKey={yKey} fill={c} radius={[3,3,0,0]} maxBarSize={32} />
+          </BarChart>
+        ) : (
+          <BarChart data={data} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7E5" horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} />
+            <YAxis type="category" dataKey={xKey} tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} width={130} />
+            <Tooltip />
+            <Bar dataKey={yKey} fill={c} radius={[0,3,3,0]} maxBarSize={20} />
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+      {note && <p className="text-[10px] text-brand-muted mt-2 italic">{note}</p>}
+    </div>
+  )
+}
+
+// ── CSV download block ────────────────────────────────────────────────────────
+function CsvDownloadBlock({ spec }) {
+  const { filename = 'report.csv', content = '' } = spec
+  const [done, setDone] = useState(false)
+  const rows = content.split('\n').filter(Boolean).length
+
+  function download() {
+    try {
+      const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = filename; document.body.appendChild(a); a.click()
+      document.body.removeChild(a); URL.revokeObjectURL(url)
+      setDone(true)
+    } catch {}
+  }
+
+  return (
+    <div className="bg-brand-bg/40 border border-brand-border rounded-xl px-4 py-3 my-3 flex items-center gap-3">
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{ background: '#f0f9e8' }}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="#8CC63F" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[12px] font-medium text-brand-heading truncate">{filename}</p>
+        <p className="text-[10px] text-brand-muted">{rows > 1 ? `${rows - 1} rows` : ''} · CSV</p>
+      </div>
+      <button onClick={download}
+        className="flex-shrink-0 text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-all"
+        style={{ background: done ? '#f0f9e8' : '#8CC63F', color: done ? '#8CC63F' : 'white', border: '1px solid', borderColor: '#8CC63F' }}>
+        {done ? 'Downloaded ✓' : 'Download'}
+      </button>
+    </div>
+  )
+}
+
+// ── Rich content renderer (text + charts + CSV blocks) ────────────────────────
+function RichContent({ text }) {
+  if (!text) return null
+  const parts = []
+  const regex = /```(chart|csv-download)\s*([\s\S]*?)```/g
+  let last = 0, m
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) parts.push({ type: 'text', content: text.slice(last, m.index) })
+    try {
+      parts.push({ type: m[1], spec: JSON.parse(m[2].trim()) })
+    } catch {
+      parts.push({ type: 'text', content: m[0] })
+    }
+    last = m.index + m[0].length
+  }
+  if (last < text.length) parts.push({ type: 'text', content: text.slice(last) })
+  return (
+    <div>
+      {parts.map((p, i) => {
+        if (p.type === 'chart')        return <ChartBlock key={i} spec={p.spec} />
+        if (p.type === 'csv-download') return <CsvDownloadBlock key={i} spec={p.spec} />
+        return <MarkdownText key={i} text={p.content} />
+      })}
+    </div>
+  )
+}
+
 // ── Tool-use typing bubble ────────────────────────────────────────────────────
 function TypingBubble({ toolEvents }) {
   return (
@@ -147,7 +292,7 @@ function MessageBubble({ msg }) {
       >
         {isUser
           ? <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-          : <MarkdownText text={msg.content} />
+          : <RichContent text={msg.content} />
         }
       </div>
     </div>
