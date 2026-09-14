@@ -306,6 +306,21 @@ export default function JarvisChat() {
         state: a.ghlState || null, email: a.ghlEmail || null,
         lastActive: a.lastActivity ?? null,
         addon: addon?.label || null, estExtra: addon?.estExtra || 0, action,
+        calls: a.callStats ? {
+          total:        a.callStats.totalCalls,
+          lastDate:     a.callStats.lastCallDate,
+          lastEmployee: a.callStats.lastCallEmployee,
+          lastCategory: a.callStats.lastCallCategory,
+          avgScore:     a.callStats.avgScore,
+          frustrated:   a.callStats.frustratedCount,
+          riskLevel:    a.callStats.riskLevel || null,
+          categories:   a.callStats.categories,
+          recent:       a.callStats.recentCalls?.slice(0, 3).map(c => ({
+            date: c.date, employee: c.employee, score: c.score,
+            category: c.category, sentiment: c.sentiment,
+            frustrated: c.frustrated, summary: c.summary,
+          })),
+        } : null,
       }
     })
 
@@ -347,7 +362,7 @@ export default function JarvisChat() {
     stripe:    !ghlLoading && !!(jarvisData?.accounts?.some(a => a.mrr > 0)),
     logoChurn: !logoChurn.loading && !!logoChurn.data,
     freshdesk: !fdLoading && !!fdTickets,
-    calls:     false,
+    calls: !ghlLoading && !!(jarvisData?.accounts?.some(a => a.calls !== null)),
   }
   const isReady = !ghlLoading && !!jarvisData
 

@@ -15,6 +15,7 @@ const TOOL_LABELS = {
   get_upsell_pipeline:      'Scanning upsell pipeline…',
   get_support_tickets:      'Fetching support tickets…',
   get_geographic_breakdown: 'Mapping geographic data…',
+  get_call_intelligence:    'Analyzing call records…',
 }
 
 // ── Tool definitions ──────────────────────────────────────────────────────────
@@ -85,6 +86,23 @@ const TOOLS = [
     name: 'get_geographic_breakdown',
     description: 'Get account count and MRR broken down by US state.',
     input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_call_intelligence',
+    description: 'Analyze call records from the AI Team Assistant. Use for questions about call quality, frustrated calls, employee performance, call volume, or support trends across accounts.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        analysis_type: {
+          type: 'string',
+          enum: ['most_frustrated','worst_scores','most_calls','by_employee','by_category','account_calls'],
+          description: 'most_frustrated=accounts with most frustrated calls, worst_scores=lowest avg call scores, most_calls=highest call volume, by_employee=calls grouped by employee, by_category=calls by category, account_calls=recent calls for a specific account',
+        },
+        account_name: { type: 'string', description: 'For account_calls: name of the account to look up' },
+        employee:     { type: 'string', description: 'Filter results by employee name' },
+        limit:        { type: 'number', description: 'Max results (default 15)' },
+      },
+    },
   },
 ]
 
@@ -270,6 +288,99 @@ function execTickets(input, tickets) {
   }
 }
 
+function execCallIntelligence(input, accounts) {
+  const withCalls = accounts.filter(a => a.calls && a.calls.total > 0)
+  if (!withCalls.length) return { note: 'No call data matched to accounts. Call Intelligence sheet may not have matching customer names.' }
+
+  const type  = input.analysis_type || 'most_calls'
+  const limit = input.limit || 15
+
+  if (type === 'account_calls') {
+    const q = (input.account_name || '').toLowerCase()
+    const match = accounts.find(a => (a.name || '').toLowerCase().includes(q))
+    if (!match) return { error: `No account found matching "${input.account_name}"` }
+    if (!match.calls) return { note: `No call records matched to ${match.name}` }
+    return {
+      account: match.name, type: match.type, band: match.band,
+      total_calls: match.calls.total,
+      avg_score:   match.calls.avgScore,
+      frustrated_calls: match.calls.frustrated,
+      risk_level:  match.calls.riskLevel,
+      categories:  match.calls.categories,
+      recent_calls: match.calls.recent,
+    }
+  }
+
+  if (type === 'most_frustrated') {
+    return {
+      accounts: [...withCalls]
+        .filter(a => a.calls.frustrated > 0)
+        .sort((a, b) => b.calls.frustrated - a.calls.frustrated)
+        .slice(0, limit)
+        .map(a => ({ name: a.name, type: a.type, band: a.band, frustrated_calls: a.calls.frustrated, total_calls: a.calls.total, last_call: a.calls.lastDate, last_employee: a.calls.lastEmployee })),
+    }
+  }
+
+  if (type === 'worst_scores') {
+    return {
+      accounts: [...withCalls]
+        .filter(a => a.calls.avgScore > 0)
+        .sort((a, b) => a.calls.avgScore - b.calls.avgScore)
+        .slice(0, limit)
+        .map(a => ({ name: a.name, type: a.type, band: a.band, avg_score: a.calls.avgScore, total_calls: a.calls.total, risk_level: a.calls.riskLevel })),
+    }
+  }
+
+  if (type === 'most_calls') {
+    return {
+      accounts: [...withCalls]
+        .sort((a, b) => b.calls.total - a.calls.total)
+        .slice(0, limit)
+        .map(a => ({ name: a.name, type: a.type, band: a.band, total_calls: a.calls.total, avg_score: a.calls.avgScore, frustrated: a.calls.frustrated, last_call: a.calls.lastDate })),
+    }
+  }
+
+  if (type === 'by_employee') {
+    const empMap = {}
+    for (const a of withCalls) {
+      const emp = a.calls.lastEmployee || 'Unknown'
+      if (!empMap[emp]) empMap[emp] = { calls: 0, accounts: 0, frustrated: 0, scores: [] }
+      empMap[emp].calls      += a.calls.total
+      empMap[emp].accounts   += 1
+      empMap[emp].frustrated += a.calls.frustrated
+      if (a.calls.avgScore > 0) empMap[emp].scores.push(a.calls.avgScore)
+    }
+    const empFilter = (input.employee || '').toLowerCase()
+    return {
+      by_employee: Object.entries(empMap)
+        .filter(([emp]) => !empFilter || emp.toLowerCase().includes(empFilter))
+        .sort((a, b) => b[1].calls - a[1].calls)
+        .slice(0, limit)
+        .map(([emp, v]) => ({
+          employee: emp, total_calls: v.calls, accounts_served: v.accounts,
+          frustrated_calls: v.frustrated,
+          avg_score: v.scores.length ? Math.round(v.scores.reduce((s, n) => s + n, 0) / v.scores.length * 10) / 10 : null,
+        })),
+    }
+  }
+
+  if (type === 'by_category') {
+    const catMap = {}
+    for (const a of withCalls) {
+      for (const [cat, cnt] of Object.entries(a.calls.categories || {})) {
+        catMap[cat] = (catMap[cat] || 0) + cnt
+      }
+    }
+    return {
+      by_category: Object.entries(catMap)
+        .sort((a, b) => b[1] - a[1])
+        .map(([cat, cnt]) => ({ category: cat, total_calls: cnt })),
+    }
+  }
+
+  return { error: `Unknown analysis_type: ${type}` }
+}
+
 function execGeo(accounts) {
   const g = {}
   for (const a of accounts.filter(a => !a.cancel)) {
@@ -291,6 +402,7 @@ function executeTool(name, input, data) {
     case 'get_upsell_pipeline':      return execUpsell(input, accounts)
     case 'get_support_tickets':      return execTickets(input, tickets)
     case 'get_geographic_breakdown': return execGeo(accounts)
+    case 'get_call_intelligence':    return execCallIntelligence(input, accounts)
     default: return { error: `Unknown tool: ${name}` }
   }
 }
