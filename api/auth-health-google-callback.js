@@ -5,17 +5,20 @@ import * as crypto from 'crypto'
 const COOKIE      = 'lgm-health-auth'
 const BASE        = 'https://health.littlegiantmarketing.com'
 const REDIRECT_URI = `${BASE}/api/auth-health-google-callback`
+const ALLOWED_HD  = 'littlegiantmarketing.com'
 const ONE_YEAR    = 60 * 60 * 24 * 365
 
-const ALLOWED_EMAILS = [
+// Only these four get full admin access (Jarvis + all data). Everyone else
+// with @littlegiantmarketing.com gets account_manager (limited view).
+const ADMIN_EMAILS = new Set([
   'john@littlegiantmarketing.com',
   'cliff@littlegiantmarketing.com',
   'joe@littlegiantmarketing.com',
   'syed@littlegiantmarketing.com',
-]
+])
 
-function makeToken(email, secret) {
-  const payload = Buffer.from(`${email}:admin`).toString('base64url')
+function makeToken(email, role, secret) {
+  const payload = Buffer.from(`${email}:${role}`).toString('base64url')
   const sig     = crypto.createHmac('sha256', secret).update(payload).digest('base64url')
   return `g.${payload}.${sig}`
 }
@@ -54,11 +57,12 @@ export default async function handler(req, res) {
     const profile = await profileRes.json()
     const email   = (profile.email || '').toLowerCase()
 
-    if (!ALLOWED_EMAILS.includes(email)) {
+    if (!email.endsWith(`@${ALLOWED_HD}`)) {
       return res.redirect(302, '/?login=1&error=domain_not_allowed')
     }
 
-    const token = makeToken(email, sessionSecret)
+    const role  = ADMIN_EMAILS.has(email) ? 'admin' : 'account_manager'
+    const token = makeToken(email, role, sessionSecret)
     res.setHeader('Set-Cookie', `${COOKIE}=${token}; Path=/; Max-Age=${ONE_YEAR}; SameSite=Lax; Secure`)
     return res.redirect(302, '/')
   } catch (err) {

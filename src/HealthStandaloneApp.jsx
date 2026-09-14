@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useContext } from 'react'
 import { RoleContext } from './contexts/RoleContext'
 import HealthDashboard from './components/health/HealthDashboard'
 import JarvisChat      from './components/health/JarvisChat'
@@ -59,6 +59,7 @@ function LogoMark() {
 }
 
 function DashboardShell({ onSignOut }) {
+  const { isAdmin } = useContext(RoleContext)
   const [activeTab, setActiveTab] = useState('health')
   const [healthFilters, setHealthFilters] = useState({
     search: '', typeFilter: 'all', bandFilter: 'all', billingFilter: 'all',
@@ -67,7 +68,7 @@ function DashboardShell({ onSignOut }) {
 
   const tabs = [
     { id: 'health', label: 'Customer Health' },
-    { id: 'jarvis', label: '✦ Jarvis' },
+    ...(isAdmin ? [{ id: 'jarvis', label: '✦ Jarvis' }] : []),
   ]
 
   return (
