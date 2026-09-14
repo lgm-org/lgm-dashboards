@@ -4,7 +4,7 @@ export default function handler(req, res) {
   const clientId = process.env.GOOGLE_CLIENT_ID
   if (!clientId) return res.status(500).send('GOOGLE_CLIENT_ID not configured')
 
-  const redirectUri = 'https://calls.littlegiantmarketing.com/api/auth-google-callback'
+  const redirectUri = 'https://health.littlegiantmarketing.com/api/auth-health-google-callback'
   const params = new URLSearchParams({
     client_id:     clientId,
     redirect_uri:  redirectUri,

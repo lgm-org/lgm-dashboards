@@ -10,17 +10,25 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 
-// ── Cookie helpers ────────────────────────────────────────────────────────────
+// ── User identity helpers ─────────────────────────────────────────────────────
 function getUserEmail() {
+  // Primary: decode email from Google OAuth cookie (g.{base64url(email:role)}.{sig})
   try {
     const raw = document.cookie.split(';').map(c => c.trim())
       .find(c => c.startsWith('lgm-health-auth='))?.slice('lgm-health-auth='.length) || ''
     if (raw.startsWith('g.')) {
       const decoded = atob(raw.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))
-      return decoded.split(':')[0] || null
+      const email = decoded.split(':')[0]
+      if (email && email.includes('@')) return email
     }
   } catch {}
-  return null
+  // Fallback: stable anonymous ID from localStorage (password-login users)
+  try {
+    let id = localStorage.getItem('jarvis-user-id')
+    if (!id) { id = 'anon-' + Math.random().toString(36).slice(2, 10); localStorage.setItem('jarvis-user-id', id) }
+    return id
+  } catch {}
+  return 'anon-unknown'
 }
 
 // ── Simple markdown renderer ──────────────────────────────────────────────────
