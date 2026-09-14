@@ -5,8 +5,14 @@ import * as crypto from 'crypto'
 const COOKIE      = 'lgm-health-auth'
 const BASE        = 'https://health.littlegiantmarketing.com'
 const REDIRECT_URI = `${BASE}/api/auth-health-google-callback`
-const ALLOWED_HD  = 'littlegiantmarketing.com'
 const ONE_YEAR    = 60 * 60 * 24 * 365
+
+const ALLOWED_EMAILS = [
+  'john@littlegiantmarketing.com',
+  'cliff@littlegiantmarketing.com',
+  'joe@littlegiantmarketing.com',
+  'syed@littlegiantmarketing.com',
+]
 
 function makeToken(email, secret) {
   const payload = Buffer.from(`${email}:admin`).toString('base64url')
@@ -48,7 +54,7 @@ export default async function handler(req, res) {
     const profile = await profileRes.json()
     const email   = (profile.email || '').toLowerCase()
 
-    if (!email.endsWith(`@${ALLOWED_HD}`)) {
+    if (!ALLOWED_EMAILS.includes(email)) {
       return res.redirect(302, '/?login=1&error=domain_not_allowed')
     }
 
