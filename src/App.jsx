@@ -42,6 +42,7 @@ import VerdictDistribution from './components/VerdictDistribution'
 import CategoryPerformance from './components/CategoryPerformance'
 import BehaviorInsights    from './components/BehaviorInsights'
 import ResolutionTracker   from './components/ResolutionTracker'
+import MissedCallsTracker  from './components/MissedCallsTracker'
 import FrustratedTable     from './components/FrustratedTable'
 import ActivityFeed        from './components/ActivityFeed'
 import CallDetailModal     from './components/modals/CallDetailModal'
@@ -255,6 +256,7 @@ const { calls, loading, error, lastUpdated, refetch, retrying } = useEmployeeHea
               </div>
 
               <BehaviorInsights calls={filteredCalls} />
+              <MissedCallsTracker />
               <ResolutionTracker calls={frustratedCalls} statuses={statuses} />
               <FrustratedTable
                 calls={frustratedCalls}

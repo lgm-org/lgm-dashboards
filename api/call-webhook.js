@@ -67,8 +67,25 @@ export default async function handler(req, res) {
   }
 
   if (CALL_END_EVENTS.has(type)) {
-    const { error } = await sb.from('active_calls').delete().eq('id', callId);
-    if (error) console.error('[call-webhook] delete error:', error.message);
+    await sb.from('active_calls').delete().eq('id', callId);
+
+    if (type === 'MissedCall') {
+      const agentName = fullName
+        || [firstName, lastName].filter(Boolean).join(' ')
+        || null;
+      const { error: missedErr } = await sb.from('missed_calls').upsert({
+        id:            callId,
+        contact_name:  contactName || null,
+        contact_phone: phone       || null,
+        agent_name:    agentName,
+        agent_id:      userId      || null,
+        direction:     direction   || 'inbound',
+        location_id:   locationId  || null,
+        missed_at:     new Date().toISOString(),
+      }, { onConflict: 'id' });
+      if (missedErr) console.error('[call-webhook] missed_calls upsert error:', missedErr.message);
+    }
+
     return res.status(200).json({ ok: true, action: 'ended', callId });
   }
 
