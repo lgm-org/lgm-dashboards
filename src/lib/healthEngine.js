@@ -1,22 +1,11 @@
-import { differenceInDays, parseISO, isValid } from 'date-fns'
+import { HEALTH_BANDS } from './healthConfig'
+
+// First user on every account is free — only additional seats are billable.
+export function billableUsers(account) {
+  return Math.max(0, (account.users ?? 0) - 1)
+}
 
 // Score based purely on GHL activity recency (tenure removed per John's feedback).
-
-function tenureScore(dateAdded) {
-  if (!dateAdded) return 30
-  try {
-    const d = parseISO(dateAdded)
-    if (!isValid(d)) return 30
-    const days = differenceInDays(new Date(), d)
-    if (days < 0)    return 30
-    if (days < 30)   return 30                                      // brand new
-    if (days < 90)   return 30 + ((days - 30) / 60) * 20           // 30–90d: 30–50
-    if (days < 365)  return 50 + ((days - 90) / 275) * 30          // 90d–1yr: 50–80
-    return Math.min(100, 80 + ((days - 365) / 365) * 20)           // 1yr+: 80–100
-  } catch {
-    return 30
-  }
-}
 
 function activityScore(daysSinceUpdate) {
   if (daysSinceUpdate === null || daysSinceUpdate === undefined) return 50
@@ -59,15 +48,6 @@ function opportunityScore(n) {
   return Math.min(100, 90 + ((n - 1000) / 4000) * 10)     // 90–100
 }
 
-function userScore(n) {
-  if (!n || n <= 0) return 0
-  if (n === 1)      return 30
-  if (n === 2)      return 55
-  if (n <= 4)       return 70
-  if (n <= 7)       return 85
-  return 100
-}
-
 export function enhancedScoreAccount(account, liveMetrics) {
   const activity = activityScore(account.lastActivity ?? account.ghlDaysSinceUpdate)
   const contacts = contactScore(liveMetrics?.contacts)
@@ -84,8 +64,8 @@ export function enhancedScoreAccount(account, liveMetrics) {
 }
 
 export function classify(score) {
-  if (score >= 70) return 'healthy'
-  if (score >= 40) return 'watch'
+  if (score >= HEALTH_BANDS.healthy) return 'healthy'
+  if (score >= HEALTH_BANDS.watch)   return 'watch'
   return 'at_risk'
 }
 

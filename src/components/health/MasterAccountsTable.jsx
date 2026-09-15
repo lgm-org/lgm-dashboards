@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import InfoTip from './InfoTip'
 import { useRole } from '../../contexts/RoleContext'
+import { billableUsers } from '../../lib/healthEngine'
 
 const G   = '#8CC63F'
 const AMB = '#EAB308'
@@ -64,7 +65,7 @@ const COLS = [
   { key: 'planPrice',          label: 'Plan',         sortable: true,  align: 'right',  tip: 'Base monthly plan price from Stripe. "yr" badge = annual plan (billed yearly).' },
   { key: 'addOns',             label: 'Add-ons',      sortable: false, align: 'right',  tip: 'Monthly add-on charges (e.g. LeadFlow AI). $0 = Stripe-matched with no active add-ons — upsell opportunity.' },
   { key: 'lcWalletCharges',    label: 'LC Wallet',    sortable: true,  align: 'right',  tip: 'Cumulative LC platform spend from Cliff\'s data: SMS, AI calls, email, voice. All-time total — not monthly.' },
-  { key: 'users',              label: 'Billed Users', sortable: true,  align: 'center', tip: 'Billed user seat count from Stripe. Does not include free/unlicensed GHL members — total member count coming from Cliff\'s daily sync.' },
+  { key: 'users',              label: 'Billed Users', sortable: true,  align: 'center', tip: 'Billable user seats (total users minus 1 free admin seat). First user on every account is free.' },
   { key: '_estGP',             label: 'Est. GP%',     sortable: false, align: 'right',  tip: 'Estimated gross profit %: (Monthly Revenue − Est. Monthly LC Cost) ÷ Revenue. LC cost is estimated from all-time wallet spend ÷ tenure months. Will be exact once Cliff\'s daily LC sync is live.' },
   { key: 'lastActivity',       label: 'Activity',     sortable: true,  align: 'center', tip: 'Days since last activity — whichever is more recent: GHL sub-account last updated, or LC wallet charge (SMS, calls, AI, email). Green = within 7 days · Amber = 8–30 days · Red = 30+ days.' },
   { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Health score 0–100 based on GHL activity recency. 70+ = Healthy · 40–69 = Watch · <40 = At-Risk. Click any row to see the full breakdown.' },
@@ -305,7 +306,7 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                   {isAdmin && (
                     <td className="px-2 py-2 text-center">
                       {bound
-                        ? <span className="num text-[11px] text-brand-text">{a.users > 0 ? a.users : '—'}</span>
+                        ? <span className="num text-[11px] text-brand-text">{billableUsers(a) > 0 ? billableUsers(a) : '—'}</span>
                         : <span className="text-brand-border text-[10px]">—</span>}
                     </td>
                   )}

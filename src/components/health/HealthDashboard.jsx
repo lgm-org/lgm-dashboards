@@ -4,7 +4,7 @@ import { useMergedHealthData }    from '../../hooks/useMergedHealthData'
 import { useAccountStatus }       from '../../hooks/useAccountStatus'
 import { useDmAgentMap }          from '../../hooks/useDmAgentMap'
 import { useRole }                from '../../contexts/RoleContext'
-import { scoreAccount, classify, isAtRisk, recommendAction, isUpsellReady, suggestAddon } from '../../lib/healthEngine'
+import { scoreAccount, classify, isAtRisk, recommendAction, isUpsellReady, suggestAddon, billableUsers } from '../../lib/healthEngine'
 import HealthFilterBar            from './HealthFilterBar'
 import HealthSummaryCards         from './HealthSummaryCards'
 import ResolutionTrackerHealth    from './ResolutionTrackerHealth'
@@ -311,7 +311,7 @@ export default function HealthDashboard({ filters, setFilters }) {
     const healthyList  = billedAccounts.filter(a => a._health?.band === 'healthy')
     const upsellList   = billedAccounts.filter(isUpsellReady)
     const newList      = billedAccounts.filter(a => (a.stripeStartDate || '') >= cutoff)
-    const withUsers    = billedAccounts.filter(a => a.users > 0)
+    const withUsers    = billedAccounts.filter(a => billableUsers(a) > 0)
 
     return {
       billedCount:  billedAccounts.length,
@@ -323,7 +323,7 @@ export default function HealthDashboard({ filters, setFilters }) {
       avgSub:       billedAccounts.reduce((s, a) => s + a.totalRev, 0) / billedAccounts.length,
       medianSub:    median(billedAccounts.map(a => a.totalRev)),
       avgUsers:     withUsers.length
-        ? withUsers.reduce((s, a) => s + a.users, 0) / withUsers.length
+        ? withUsers.reduce((s, a) => s + billableUsers(a), 0) / withUsers.length
         : 0,
       newMRR:       newList.reduce((s, a) => s + a.totalRev, 0),
     }
