@@ -1,10 +1,14 @@
 // GET /api/auth-google-start — redirects to Google OAuth
 // Restricted to @littlegiantmarketing.com via hd param
+// Deployed to three Vercel projects from the same codebase — detect host to pick the right callback.
 export default function handler(req, res) {
   const clientId = process.env.GOOGLE_CLIENT_ID
   if (!clientId) return res.status(500).send('GOOGLE_CLIENT_ID not configured')
 
-  const redirectUri = 'https://health.littlegiantmarketing.com/api/auth-health-google-callback'
+  const host = req.headers.host || ''
+  const redirectUri = host.startsWith('health.')
+    ? 'https://health.littlegiantmarketing.com/api/auth-health-google-callback'
+    : 'https://calls.littlegiantmarketing.com/api/auth-google-callback'
   const params = new URLSearchParams({
     client_id:     clientId,
     redirect_uri:  redirectUri,
