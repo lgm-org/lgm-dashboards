@@ -200,7 +200,8 @@ export default function HealthDashboard({ filters, setFilters }) {
       if (srch && !a.accountName.toLowerCase().includes(srch) &&
           !(a.ghlEmail || '').toLowerCase().includes(srch) &&
           !(a.ghlCity  || '').toLowerCase().includes(srch)) return false
-      if (filters.typeFilter !== 'all' && a.accountType !== filters.typeFilter) return false
+      if (filters.typeFilter === 'DM'    && a.accountType !== 'DM')  return false
+      if (filters.typeFilter === 'Agent' && a.accountType === 'DM')  return false
       if (filters.bandFilter !== 'all' && a._health?.band !== filters.bandFilter) return false
       if (billing === 'matched'          && !a._stripeBound) return false
       if (billing === 'unmatched'        &&  a._stripeBound) return false

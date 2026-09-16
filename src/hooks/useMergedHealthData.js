@@ -319,7 +319,7 @@ export function useMergedHealthData() {
       transactions: billing?.transactions ?? 0, // pending: Cliff's DataHealthStatus
       gp:           billing?.gp           ?? 0, // pending: cost data
       multiLocation: false,
-      accountType:  billing?.accountType  || (billing ? 'Agent' : 'Unknown'),
+      accountType:  billing?.accountType  || cliffRecord?.accountType || (billing ? 'Agent' : 'Unknown'),
 
       // Stripe cancellation date (ISO string) — set only if subscription was cancelled
       canceledAt: billing?.canceledAt || null,
