@@ -68,7 +68,7 @@ function DashboardShell({ onSignOut }) {
 
   const tabs = [
     { id: 'health', label: 'Customer Health' },
-    ...(isAdmin ? [{ id: 'jarvis', label: '✦ Jarvis' }] : []),
+    { id: 'jarvis', label: '✦ Jarvis' },
   ]
 
   return (
