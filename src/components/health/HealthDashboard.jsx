@@ -235,16 +235,16 @@ export default function HealthDashboard({ filters, setFilters }) {
     ? (DATE_FILTER_LABELS[filters.dateRange.type] || 'Selected Period')
     : null
 
-  // KPIs — derived from full account list (not filtered by date)
+  // KPIs — derived from filteredAccounts so DM/Agent/band filters update all numbers
   const activeAccounts = useMemo(() =>
-    accounts.filter(a => { const d = Number(a.lastActivity ?? a.ghlDaysSinceUpdate); return !isNaN(d) && d <= 30 }),
-    [accounts]
+    filteredAccounts.filter(a => { const d = Number(a.lastActivity ?? a.ghlDaysSinceUpdate); return !isNaN(d) && d <= 30 }),
+    [filteredAccounts]
   )
   const staleAccounts = useMemo(() =>
-    accounts.filter(isAtRisk).sort((a, b) =>
+    filteredAccounts.filter(isAtRisk).sort((a, b) =>
       (Number(b.lastActivity ?? b.ghlDaysSinceUpdate) || 0) - (Number(a.lastActivity ?? a.ghlDaysSinceUpdate) || 0)
     ),
-    [accounts]
+    [filteredAccounts]
   )
 
   const { newAccounts, newPeriodLabel } = useMemo(() => {
@@ -257,17 +257,17 @@ export default function HealthDashboard({ filters, setFilters }) {
       last_7: 'last 7 days', this_month: 'this month', last_month: 'last month',
       last_30: 'last 30 days', last_90: 'last 90 days',
     }[filters.dateRange.type] || 'selected period')
-    const list = accounts.filter(a => { const d = a.ghlDateAdded || ''; return d && d >= from && d <= to })
+    const list = filteredAccounts.filter(a => { const d = a.ghlDateAdded || ''; return d && d >= from && d <= to })
     return { newAccounts: list, newPeriodLabel: label }
-  }, [accounts, filters.dateRange])
+  }, [filteredAccounts, filters.dateRange])
 
   const avgScore = useMemo(() => {
-    if (!accounts.length) return 0
-    return accounts.reduce((s, a) => s + (a._health?.score ?? 0), 0) / accounts.length
-  }, [accounts])
+    if (!filteredAccounts.length) return 0
+    return filteredAccounts.reduce((s, a) => s + (a._health?.score ?? 0), 0) / filteredAccounts.length
+  }, [filteredAccounts])
 
   const avgTenureDays = useMemo(() => {
-    const withDate = accounts.filter(a => a.ghlDateAdded)
+    const withDate = filteredAccounts.filter(a => a.ghlDateAdded)
     if (!withDate.length) return 0
     const total = withDate.reduce((s, a) => {
       try {
@@ -276,22 +276,22 @@ export default function HealthDashboard({ filters, setFilters }) {
       } catch { return s }
     }, 0)
     return total / withDate.length
-  }, [accounts])
+  }, [filteredAccounts])
 
   // Quick Wins: top 3 stale + top 3 newest
   const top3Stale = staleAccounts.slice(0, 3)
   const top3New   = useMemo(() =>
-    [...accounts]
+    [...filteredAccounts]
       .filter(a => a.ghlDateAdded)
       .sort((a, b) => (b.ghlDateAdded || '').localeCompare(a.ghlDateAdded || ''))
       .slice(0, 3),
-    [accounts]
+    [filteredAccounts]
   )
 
   // ── Stripe billing aggregates ────────────────────────────────────────────
   const billedAccounts = useMemo(() =>
-    accounts.filter(a => a._stripeBound && a.totalRev > 0),
-    [accounts]
+    filteredAccounts.filter(a => a._stripeBound && a.totalRev > 0),
+    [filteredAccounts]
   )
 
   const BILLING = useMemo(() => {
@@ -504,7 +504,7 @@ export default function HealthDashboard({ filters, setFilters }) {
 
       {/* 1. KPI summary cards — live + billing-pending */}
       <HealthSummaryCards
-        total={accounts.length}
+        total={filteredAccounts.length}
         activeCount={activeAccounts.length}
         staleCount={staleAccounts.length}
         newCount={newAccounts.length}
