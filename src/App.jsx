@@ -43,6 +43,7 @@ import CategoryPerformance from './components/CategoryPerformance'
 import BehaviorInsights    from './components/BehaviorInsights'
 import ResolutionTracker   from './components/ResolutionTracker'
 import MissedCallsTracker  from './components/MissedCallsTracker'
+import { useMissedCalls }  from './hooks/useMissedCalls'
 import FrustratedTable     from './components/FrustratedTable'
 import ActivityFeed        from './components/ActivityFeed'
 import CallDetailModal     from './components/modals/CallDetailModal'
@@ -127,6 +128,7 @@ function QCDashboard() {
 
   const { statuses, setStatus } = useCallStatus()
   const { statuses: coachingStatuses, toggleRec: toggleCoachingRec, isCoachingComplete, resetEmployee: resetCoaching, markAllComplete: markAllCoachingComplete } = useCoachingStatus()
+  const missedCalls = useMissedCalls()
 
 const { calls, loading, error, lastUpdated, refetch, retrying } = useEmployeeHealthSheet()
 
@@ -270,6 +272,7 @@ const { calls, loading, error, lastUpdated, refetch, retrying } = useEmployeeHea
             <aside className="hidden xl:flex flex-col w-[320px] flex-shrink-0 sticky top-20">
               <ActivityFeed
                 calls={recentActivity}
+                missedCalls={missedCalls}
                 onEmployeeClick={(n)  => pushModal({ type: 'employee', id: n })}
                 onCallClick={(mid)    => pushModal({ type: 'call',     id: mid })}
               />
