@@ -345,14 +345,14 @@ export default function HealthDashboard({ filters, setFilters }) {
   }, [billedAccounts])
 
   const avgHealthDm = useMemo(() => {
-    const dm = accounts.filter(a => a.accountType === 'DM' && a._health?.score != null)
+    const dm = filteredAccounts.filter(a => a.accountType === 'DM' && a._health?.score != null)
     return dm.length ? Math.round(dm.reduce((s, a) => s + a._health.score, 0) / dm.length) : null
-  }, [accounts])
+  }, [filteredAccounts])
 
   const avgHealthAgent = useMemo(() => {
-    const ag = accounts.filter(a => a.accountType !== 'DM' && a._stripeBound && a._health?.score != null)
+    const ag = filteredAccounts.filter(a => a.accountType !== 'DM' && a._stripeBound && a._health?.score != null)
     return ag.length ? Math.round(ag.reduce((s, a) => s + a._health.score, 0) / ag.length) : null
-  }, [accounts])
+  }, [filteredAccounts])
 
   // ── Upsell candidates ────────────────────────────────────────────────────
   const upsellAccounts = useMemo(() =>
@@ -371,12 +371,12 @@ export default function HealthDashboard({ filters, setFilters }) {
   const churnMetrics = useMemo(() => {
     const today = new Date()
     // Accounts that set cancel_at_period_end but haven't actually cancelled yet
-    const scheduledToCancel = accounts.filter(a => a._stripeBound && a.stripeCanceling && !a.canceledAt)
+    const scheduledToCancel = filteredAccounts.filter(a => a._stripeBound && a.stripeCanceling && !a.canceledAt)
 
     const windows = [30, 60, 90].map(days => {
       const cutoff = format(subDays(today, days), 'yyyy-MM-dd')
       // Denominator: Stripe-matched accounts whose billing start falls within the window
-      const cohort = accounts.filter(a => {
+      const cohort = filteredAccounts.filter(a => {
         const start = a.stripeStartDate || a.ghlDateAdded || ''
         return a._stripeBound && start >= cutoff
       })
@@ -390,7 +390,7 @@ export default function HealthDashboard({ filters, setFilters }) {
     })
 
     return { windows, scheduledToCancel }
-  }, [accounts])
+  }, [filteredAccounts])
 
   if (loading && raw.length === 0) return <LoadingScreen />
   if (error   && raw.length === 0) return <ErrorBanner message={error} onRetry={refetch} />
