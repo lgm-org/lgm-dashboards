@@ -427,8 +427,7 @@ export default function HealthDashboard({ filters, setFilters }) {
           <>
             <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse flex-shrink-0" />
             <span>
-              <strong className="text-brand-text">{billedAccounts.length} matched</strong> to Stripe ·{' '}
-              <span className="text-amber-600">{accounts.length - billedAccounts.length} unmatched</span>
+              <strong className="text-brand-text">{billedAccounts.length} matched</strong> to Stripe
             </span>
           </>
         ) : null}

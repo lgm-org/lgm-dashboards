@@ -5,8 +5,10 @@ export default function handler(req, res) {
   const clientId = process.env.GOOGLE_CLIENT_ID
   if (!clientId) return res.status(500).send('GOOGLE_CLIENT_ID not configured')
 
+  // Prefer explicit app param (more reliable than host detection across Vercel preview URLs)
+  const appParam = req.query?.app || ''
   const host = req.headers.host || ''
-  const redirectUri = host.startsWith('health.')
+  const redirectUri = (appParam === 'health' || host.startsWith('health.') || host.includes('lgm-customer-health'))
     ? 'https://health.littlegiantmarketing.com/api/auth-health-google-callback'
     : 'https://calls.littlegiantmarketing.com/api/auth-google-callback'
   const params = new URLSearchParams({
