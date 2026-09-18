@@ -187,9 +187,12 @@ export default function HealthDashboard({ filters, setFilters }) {
       const band   = classify(score)
       const action = recommendAction(a)
       const dmEntry = dmMap[a.id] || null
-      // DM footprint is the authoritative source: accounts in the map are Agent clients.
-      // If Stripe/Cliff sheet gave 'Unknown', resolve via footprint presence.
-      const accountType = (a.accountType === 'Unknown' && dmEntry) ? 'Agent' : a.accountType
+      // DM footprint is authoritative for type: accounts listed there are Agent clients
+      // (column name is agent_ghl_location_id). Accounts not in the footprint are DM clients.
+      // This overrides Stripe price-detection and Cliff sheet for accounts in the footprint.
+      const accountType = dmEntry
+        ? 'Agent'
+        : (a.accountType !== 'Unknown' ? a.accountType : 'DM')
       return { ...a, accountType, _health: { score, parts, band, action }, _dm: dmEntry }
     }),
     [raw, dmMap]
@@ -204,8 +207,9 @@ export default function HealthDashboard({ filters, setFilters }) {
       if (srch && !a.accountName.toLowerCase().includes(srch) &&
           !(a.ghlEmail || '').toLowerCase().includes(srch) &&
           !(a.ghlCity  || '').toLowerCase().includes(srch)) return false
-      if (filters.typeFilter === 'DM'    && a.accountType !== 'DM')  return false
-      if (filters.typeFilter === 'Agent' && a.accountType === 'DM')  return false
+      // Use DM footprint (_dm) as source of truth: in footprint = Agent, not in = DM
+      if (filters.typeFilter === 'DM'    && a._dm !== null) return false
+      if (filters.typeFilter === 'Agent' && a._dm === null) return false
       if (filters.bandFilter !== 'all' && a._health?.band !== filters.bandFilter) return false
       if (billing === 'matched'          && !a._stripeBound) return false
       if (billing === 'unmatched'        &&  a._stripeBound) return false
