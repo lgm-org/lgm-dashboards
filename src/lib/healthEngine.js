@@ -69,11 +69,14 @@ export function classify(score) {
   return 'at_risk'
 }
 
-// At-risk = not updated in GHL for 30+ days
+// LC wallet month = reliable billing proxy → 30-day threshold
+// GHL dateUpdated = settings changes only, NOT client login/usage → 90-day threshold
 export function isAtRisk(account) {
   const days = account.lastActivity ?? account.ghlDaysSinceUpdate
   if (days === null || days === undefined) return false
-  return Number(days) > 30
+  const d = Number(days)
+  if (account._lastActivitySource === 'lc') return d > 30
+  return d > 90
 }
 
 // "Needs attention" — account hasn't been touched in 14+ days (watch zone)

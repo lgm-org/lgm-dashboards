@@ -324,6 +324,8 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                   <td className="px-2 py-2 text-center">
                     <ActivityBadge
                       days={a.lastActivity ?? a.ghlDaysSinceUpdate}
+                      source={a._lastActivitySource}
+                      lcMonth={a.lastLcActivityMonth}
                     />
                   </td>
 
