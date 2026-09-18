@@ -12,7 +12,7 @@ export function useMissedCalls() {
       .then(({ data }) => setCalls(data ?? []));
 
     const channel = supabase
-      .channel('missed_calls_rt')
+      .channel(`missed_calls_rt_${Date.now()}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'missed_calls' },

@@ -14,7 +14,7 @@ export function useActiveCalls() {
 
     // Real-time: insert / update / delete → update state in place
     const channel = supabase
-      .channel('active_calls_rt')
+      .channel(`active_calls_rt_${Date.now()}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'active_calls' },
