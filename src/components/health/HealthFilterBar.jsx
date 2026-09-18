@@ -20,7 +20,7 @@ function todayStr() {
 
 const EMPTY = { search: '', typeFilter: 'all', bandFilter: 'all', billingFilter: 'all', dateRange: { type: 'all', from: '', to: '' } }
 
-export default function HealthFilterBar({ filters, setFilters, accountTypes, totalShowing, totalAll }) {
+export default function HealthFilterBar({ filters, setFilters, accountTypes, totalShowing, totalAll, dmCount = 0, agentCount = 0 }) {
   const { search, typeFilter, bandFilter, billingFilter = 'all', dateRange } = filters
 
   const set    = (patch) => setFilters(f => ({ ...f, ...patch }))
@@ -61,12 +61,12 @@ export default function HealthFilterBar({ filters, setFilters, accountTypes, tot
               borderColor: typeFilter !== 'all' ? `${G}50`  : '#E5E7E5',
             }}
           >
-            <option value="all">DM + Agent</option>
-            <option value="DM">DM Only</option>
-            <option value="Agent">Agent Only</option>
+            <option value="all">DM + Agent{dmCount + agentCount > 0 ? ` (${dmCount + agentCount})` : ''}</option>
+            <option value="DM">DM Only{dmCount > 0 ? ` (${dmCount})` : ''}</option>
+            <option value="Agent">Agent Only{agentCount > 0 ? ` (${agentCount})` : ''}</option>
           </select>
           <InfoTip
-            text="Filter by account type. DM = Digital Marketing clients (base plan ~$250/mo). Agent = Conversational AI clients. Requires Stripe billing to classify."
+            text="Filter by account type using DM Footprint data. Agent = accounts listed in the DM Footprint (district manager-managed AI agent clients). DM = all other accounts (Digital Marketing clients). Counts shown next to each option confirm data is loaded."
             position="bottom-end"
           />
         </div>

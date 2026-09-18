@@ -244,6 +244,10 @@ export default function HealthDashboard({ filters, setFilters }) {
     ? (DATE_FILTER_LABELS[filters.dateRange.type] || 'Selected Period')
     : null
 
+  // DM/Agent split counts — passed to filter bar so dropdown shows live counts
+  const agentCount = useMemo(() => accounts.filter(a => a._dm !== null).length, [accounts])
+  const dmCount    = useMemo(() => accounts.filter(a => a._dm === null).length,  [accounts])
+
   // KPIs — derived from filteredAccounts so DM/Agent/band filters update all numbers
   const activeAccounts = useMemo(() =>
     filteredAccounts.filter(a => { const d = Number(a.lastActivity ?? a.ghlDaysSinceUpdate); return !isNaN(d) && d <= 30 }),
@@ -452,6 +456,8 @@ export default function HealthDashboard({ filters, setFilters }) {
         accountTypes={[]}
         totalShowing={filteredAccounts.length}
         totalAll={accounts.length}
+        dmCount={dmCount}
+        agentCount={agentCount}
       />
 
       {/* Sub-tab switcher */}
