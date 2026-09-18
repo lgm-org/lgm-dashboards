@@ -117,7 +117,7 @@ export default function HealthSummaryCards({
         icon="🟢"
         accentColor={G}
         delay={20}
-        infoText="Accounts with real platform activity in the last 30 days — measured from their most recent LC wallet transaction. Accounts with no LC data fall back to GHL sub-account settings updates."
+        infoText="Accounts with a detected platform signal in the last 30 days — LC wallet charge (month-end bucket) or GHL sub-account settings update, whichever is more recent. ⚠ This is NOT a user-login count — GHL does not expose login timestamps via API. Click any account to see real-time CRM & portal-login data in the detail modal."
       />
 
       <Card
@@ -143,7 +143,7 @@ export default function HealthSummaryCards({
         icon="⚠️"
         accentColor={RED}
         delay={60}
-        infoText="Accounts with no platform activity in over 30 days — based on LC wallet transactions where available, or GHL settings date as fallback. These clients need a proactive check-in. Click to jump to the Needs Attention table."
+        infoText="Accounts with no detected platform signal in over 30 days — LC wallet charges or GHL sub-account settings update. Not a user-login metric. Click to jump to the Needs Attention table."
         clickable={!!onNeedsCheckinClick}
         onClick={onNeedsCheckinClick}
       />

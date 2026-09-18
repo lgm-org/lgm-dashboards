@@ -66,7 +66,7 @@ function ChurnedRow({ a, onAccountClick }) {
         <span className="text-brand-muted font-normal text-[10px]">/mo</span>
       </td>
       <td className="py-2.5 px-2 text-[11px] text-brand-muted tabular-nums whitespace-nowrap">
-        {fmtDate(a.stripeStartDate || a.ghlDateAdded)}
+        {a.stripeStartDate ? fmtDate(a.stripeStartDate) : <span className="text-brand-muted/50 italic">no Stripe date</span>}
       </td>
       <td className="py-2.5 px-2 text-[11px] tabular-nums whitespace-nowrap" style={{ color: RED }}>
         {fmtDate(a.canceledAt)}
@@ -224,7 +224,7 @@ export default function ChurnMetrics({ metrics = [], scheduledToCancel = [], str
             <table className="w-full text-left min-w-[600px]">
               <thead>
                 <tr className="border-y border-red-100/80 bg-red-50/50">
-                  {['Account', 'Plan', 'MRR', 'Started', 'Cancelled', 'Score'].map(h => (
+                  {['Account', 'Plan', 'MRR', 'Started (Stripe)', 'Cancelled (Stripe)', 'Score'].map(h => (
                     <th key={h} className={`py-2 text-[10px] uppercase tracking-wider text-brand-muted font-semibold ${
                       h === 'Account' ? 'pl-4 pr-2' : h === 'Score' ? 'pr-4 pl-2' : 'px-2'
                     }`}>{h}</th>

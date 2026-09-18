@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { suggestAddon } from '../../lib/healthEngine'
 import InfoTip from './InfoTip'
 
@@ -142,7 +142,7 @@ export default function UpsellTable({ accounts, hasBilling = false, stripeLoadin
 
   // Reset to page 1 whenever the incoming accounts list changes (filters applied upstream)
   const accountsKey = accounts.length
-  useMemo(() => { setPage(1) }, [accountsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPage(1) }, [accountsKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const topOpportunities = sorted.slice(0, TOP_OPPORTUNITIES_COUNT)
   const rest              = sorted.slice(TOP_OPPORTUNITIES_COUNT)
@@ -168,7 +168,7 @@ export default function UpsellTable({ accounts, hasBilling = false, stripeLoadin
             </p>
           </div>
           <InfoTip
-            text="Accounts qualified for an upsell conversation: active within 60 days, with user seats billed OR LC wallet spend (proving real platform usage), and room to grow (fewer than 4 users OR no add-ons yet). Sorted by estimated additional MRR — highest potential first. LC wallet spend is the strongest upsell signal — these clients are already paying for usage."
+            text="Upsell qualification rules: (1) Has an active Stripe subscription · (2) Platform activity within last 60 days · (3) Engagement confirmed — at least 1 billed user seat OR any LC wallet spend · (4) Room to grow — fewer than 4 total user seats OR no add-ons yet. Billable users = total users minus 1 (first seat is free). Sorted by estimated additional MRR highest-first. LC wallet spend is the strongest signal — these clients are already paying for platform usage."
             position="top-end"
           />
         </div>

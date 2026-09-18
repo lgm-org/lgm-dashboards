@@ -186,7 +186,11 @@ export default function HealthDashboard({ filters, setFilters }) {
       const { score, parts } = scoreAccount(a)
       const band   = classify(score)
       const action = recommendAction(a)
-      return { ...a, _health: { score, parts, band, action }, _dm: dmMap[a.id] || null }
+      const dmEntry = dmMap[a.id] || null
+      // DM footprint is the authoritative source: accounts in the map are Agent clients.
+      // If Stripe/Cliff sheet gave 'Unknown', resolve via footprint presence.
+      const accountType = (a.accountType === 'Unknown' && dmEntry) ? 'Agent' : a.accountType
+      return { ...a, accountType, _health: { score, parts, band, action }, _dm: dmEntry }
     }),
     [raw, dmMap]
   )
