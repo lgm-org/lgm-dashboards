@@ -10,9 +10,12 @@ function elapsed(startedAt) {
   return m > 0 ? `${m}m ${s < 10 ? '0' : ''}${s}s` : `${s}s`;
 }
 
+const MAX_CALL_MS = 3 * 60 * 60 * 1000;
+
 export function ActiveCallsBar() {
-  const calls = useActiveCalls();
   const [, tick] = useState(0);
+  // Rows whose end event never reached Supabase would otherwise count up forever
+  const calls = useActiveCalls().filter(c => Date.now() - new Date(c.started_at).getTime() < MAX_CALL_MS);
 
   // Tick every second while calls are active so the duration display updates live
   useEffect(() => {
