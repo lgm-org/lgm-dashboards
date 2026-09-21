@@ -136,7 +136,7 @@ function AccountRow({ a, i, getStatus, getResolvedAt, setStatus, onAccountClick 
         {a.ghlEmail || '—'}
       </td>
       <td className="px-3 py-3">
-        <ActivityBadge days={a.lastActivity ?? a.ghlDaysSinceUpdate} source={a.lastLcActivityMonth ? 'lc' : 'ghl'} />
+        <ActivityBadge days={a.lastActivity} source={a.lastLcActivityMonth ? 'lc' : 'ghl'} />
       </td>
       <td className="px-3 py-3">
         <HealthPill score={a._health?.score ?? 0} band={a._health?.band ?? 'at_risk'} />

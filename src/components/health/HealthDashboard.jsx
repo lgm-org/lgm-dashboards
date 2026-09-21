@@ -110,6 +110,8 @@ export default function HealthDashboard({ filters, setFilters }) {
   const [activeSubTab, setActiveSubTab]       = useState('overview')
   const [elapsed, setElapsed] = useState('—')
   const [stripeElapsed, setStripeElapsed] = useState(0)
+  const [activitySyncing, setActivitySyncing] = useState(false)
+  const [activitySyncDone, setActivitySyncDone] = useState(false)
   const stripeStartRef = useRef(null)
   const needsAttentionRef = useRef(null)
   const masterTableRef = useRef(null)
@@ -165,6 +167,38 @@ export default function HealthDashboard({ filters, setFilters }) {
     return () => clearInterval(id)
   }, [stripeLoading])
 
+  // Batch-sync GHL contact activity on initial load.
+  // Fire-and-forget: processes all accounts in 20-account pages, populates Supabase cache.
+  // This powers accurate "last activity" in the main table without needing individual modal opens.
+  const syncActivityData = async () => {
+    if (activitySyncing) return
+    setActivitySyncing(true)
+    setActivitySyncDone(false)
+    let skip = 0
+    let hasMore = true
+    while (hasMore) {
+      try {
+        const r = await fetch(`/api/ghl-sync-activity-batch?skip=${skip}`)
+        if (!r.ok) break
+        const d = await r.json()
+        hasMore = d.hasMore
+        skip    = d.nextSkip || skip + 20
+      } catch { break }
+    }
+    setActivitySyncing(false)
+    setActivitySyncDone(true)
+  }
+
+  useEffect(() => {
+    // Auto-sync once per session, 3 seconds after initial data loads
+    const timer = setTimeout(() => {
+      if (raw.length > 0 && !activitySyncing && !activitySyncDone) {
+        syncActivityData()
+      }
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [raw.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') setSelectedAccount(null) }
     document.addEventListener('keydown', onKey)
@@ -219,7 +253,7 @@ export default function HealthDashboard({ filters, setFilters }) {
       if (billing === 'paused_ghl'    && !a.ghlDisabled) return false
       if (billing === 'paused_both'   && !(a.stripeStatus === 'paused' && a.ghlDisabled)) return false
       if (filters.dateRange.type !== 'all') {
-        const d = a.stripeStartDate || a.ghlDateAdded || ''
+        const d = (a.stripeStartDate || a.ghlDateAdded || '').slice(0, 10)
         if (!d || d < from || d > to) return false
       }
       return true
@@ -249,13 +283,14 @@ export default function HealthDashboard({ filters, setFilters }) {
   const dmCount    = useMemo(() => accounts.filter(a => a._dm === null).length,  [accounts])
 
   // KPIs — derived from filteredAccounts so DM/Agent/band filters update all numbers
+  // Only use lastActivity (real GHL contact data) — not ghlDaysSinceUpdate (settings update, unreliable)
   const activeAccounts = useMemo(() =>
-    filteredAccounts.filter(a => { const d = Number(a.lastActivity ?? a.ghlDaysSinceUpdate); return !isNaN(d) && d <= 30 }),
+    filteredAccounts.filter(a => { const d = Number(a.lastActivity); return !isNaN(d) && d <= 30 }),
     [filteredAccounts]
   )
   const staleAccounts = useMemo(() =>
     filteredAccounts.filter(isAtRisk).sort((a, b) =>
-      (Number(b.lastActivity ?? b.ghlDaysSinceUpdate) || 0) - (Number(a.lastActivity ?? a.ghlDaysSinceUpdate) || 0)
+      (Number(b.lastActivity) || 0) - (Number(a.lastActivity) || 0)
     ),
     [filteredAccounts]
   )
@@ -429,6 +464,14 @@ export default function HealthDashboard({ filters, setFilters }) {
             <span>
               <strong className="text-brand-text">{billedAccounts.length} matched</strong> to Stripe
             </span>
+            {accounts.length - billedAccounts.length > 0 && (
+              <>
+                <span className="text-brand-border">·</span>
+                <span className="text-amber-600 font-semibold">
+                  {accounts.length - billedAccounts.length} unmatched
+                </span>
+              </>
+            )}
           </>
         ) : null}
         <span className="ml-auto text-brand-muted/60">{lastUpdated ? `Synced ${elapsed}` : 'Syncing…'}</span>
@@ -440,6 +483,16 @@ export default function HealthDashboard({ filters, setFilters }) {
           className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg border bg-brand-bg text-brand-muted hover:text-brand-text border-brand-border">
           <RefreshIcon spinning={loading} />
           <span>{loading ? 'Refreshing…' : 'Refresh'}</span>
+        </button>
+        <button
+          onClick={syncActivityData}
+          disabled={activitySyncing}
+          title="Fetch latest GHL contact activity for all accounts and update Last Activity column"
+          className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg border bg-brand-bg border-brand-border transition-colors disabled:opacity-50"
+          style={{ color: activitySyncDone ? G : '#6B7280' }}
+        >
+          <RefreshIcon spinning={activitySyncing} />
+          <span>{activitySyncing ? 'Syncing activity…' : activitySyncDone ? 'Activity synced ✓' : 'Sync Activity'}</span>
         </button>
         {error && raw.length > 0 && (
           <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
@@ -518,7 +571,8 @@ export default function HealthDashboard({ filters, setFilters }) {
 
       {/* 1. KPI summary cards — live + billing-pending */}
       <HealthSummaryCards
-        total={filteredAccounts.length}
+        total={accounts.length}
+        filteredCount={filteredAccounts.length < accounts.length ? filteredAccounts.length : null}
         activeCount={activeAccounts.length}
         staleCount={staleAccounts.length}
         newCount={newAccounts.length}

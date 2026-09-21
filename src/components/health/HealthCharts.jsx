@@ -137,14 +137,14 @@ function ActivityHistogram({ accounts }) {
   const data = buckets.map(b => ({
     label: b.label,
     count: accounts.filter(a => {
-      const d = Number(a.ghlDaysSinceUpdate)
-      return !isNaN(d) && d >= b.min && d < b.max
+      const d = a.lastActivity
+      return !isNaN(Number(d)) && Number(d) >= b.min && Number(d) < b.max
     }).length,
     fill: b.min >= 30 ? RED : b.min >= 14 ? AMB : G,
   }))
 
   return (
-    <Card title="Activity Distribution" subtitle="Days since last GHL update across all accounts" delay={700}
+    <Card title="Activity Distribution" subtitle="Days since last activity across all accounts" delay={700}
       infoText="How many accounts fall into each activity recency bucket. Accounts updated today or within the last 7 days are in peak health. Red buckets (30d+) are stale — these need a check-in call.">
       <ResponsiveContainer width="100%" height={160}>
         <BarChart data={data} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>

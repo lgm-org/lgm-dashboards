@@ -67,6 +67,7 @@ function PendingCard({ label, icon, delay, infoText, pendingNote }) {
 
 export default function HealthSummaryCards({
   total = 0,
+  filteredCount = null,
   activeCount = 0,
   staleCount = 0,
   newCount = 0,
@@ -104,7 +105,9 @@ export default function HealthSummaryCards({
       <Card
         label="Total GHL Sub-accounts"
         value={total}
-        sub="Live from GoHighLevel API · sandbox excluded"
+        sub={filteredCount !== null && filteredCount < total
+          ? `Showing ${filteredCount} of ${total} · filter active`
+          : 'Live from GoHighLevel API · sandbox excluded'}
         icon="🔗"
         delay={0}
         infoText="Total active client sub-accounts pulled live from GoHighLevel on every dashboard load. Internal sandbox and test accounts are excluded."

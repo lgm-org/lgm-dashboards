@@ -145,7 +145,7 @@ function AgentTable({ group, onAccountClick, isAdmin }) {
             {group.agents.map(a => {
               const bound   = a._stripeBound
               const churned = a.stripeStatus === 'canceled'
-              const days    = a.lastActivity ?? a.ghlDaysSinceUpdate
+              const days    = a.lastActivity
               const dNum    = days !== null && days !== undefined ? Number(days) : null
               const actColor = dNum === null ? null : dNum <= 7 ? G : dNum <= 30 ? AMB : RED
               const actLabel = dNum === null ? '—' : dNum === 0 ? 'Today' : `${dNum}d`
@@ -272,7 +272,7 @@ export default function DmFootprintTab({ accounts, dmMap, onAccountClick }) {
     return Object.values(groups).map(g => {
       const billed  = g.agents.filter(a => a._stripeBound && a.totalRev > 0)
       const scores  = g.agents.filter(a => a._health?.score != null).map(a => a._health.score)
-      const active  = g.agents.filter(a => { const d = Number(a.lastActivity ?? a.ghlDaysSinceUpdate ?? 9999); return d <= 30 })
+      const active  = g.agents.filter(a => { const d = Number(a.lastActivity ?? 9999); return d <= 30 })
       const newA    = g.agents.filter(a => (a.ghlDateAdded || '') >= cutoff30)
       const atRisk  = g.agents.filter(a => a._health?.band === 'at_risk')
 
