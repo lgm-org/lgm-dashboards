@@ -167,19 +167,22 @@ export default async function handler(req, res) {
     })
   }
 
-  const [usersR, contactsR, convoR, oppsR] = await Promise.allSettled([
+  const [usersR, contactsR, convoR, oppsR, wonOppsR] = await Promise.allSettled([
     ghlFetch(`/users/?locationId=${locationId}`, token),
     // Sort by date_updated desc — first result is the most recently touched contact
     ghlFetch(`/contacts/?locationId=${locationId}&sortBy=date_updated&sortOrder=desc&limit=1`, token),
     ghlFetch(`/conversations/search?locationId=${locationId}&limit=1`, token),
     // opportunities/search is a POST endpoint — GHL requires "locationId" (not "location_id")
     ghlFetch(`/opportunities/search`, token, 'POST', { locationId, limit: 1 }),
+    // Last won opportunity — sort by lastStatusChangeDate desc to get most recent win
+    ghlFetch(`/opportunities/search`, token, 'POST', { locationId, status: 'won', sortBy: 'lastStatusChangeDate', sortOrder: 'desc', limit: 1 }),
   ])
 
   const users    = usersR.status    === 'fulfilled' ? usersR.value    : null
   const contacts = contactsR.status === 'fulfilled' ? contactsR.value : null
   const convos   = convoR.status    === 'fulfilled' ? convoR.value    : null
   const opps     = oppsR.status     === 'fulfilled' ? oppsR.value     : null
+  const wonOpps  = wonOppsR.status  === 'fulfilled' ? wonOppsR.value  : null
 
   // Extract counts, trying multiple known GHL response shapes
   const userCount    = users?.json?.users?.length            ?? null
@@ -187,8 +190,28 @@ export default async function handler(req, res) {
   const convoCount   = convos?.json?.total  ?? convos?.json?.meta?.total   ?? null
   const oppsCount    = opps?.json?.total    ?? opps?.json?.meta?.total     ?? opps?.json?.opportunities?.total ?? null
 
-  // Most recently updated contact — real-time signal that the client's team is actively using GHL
+  // Most recently updated contact — real GHL native contact activity (more accurate than sub-account dateUpdated)
   const lastContactUpdate = contacts?.json?.contacts?.[0]?.dateUpdated || null
+
+  // Most recent won opportunity close date
+  const wonOpp    = wonOpps?.json?.opportunities?.[0] || null
+  const lastSaleDate = wonOpp?.lastStatusChangeDate || wonOpp?.updatedAt || null
+
+  // Cache contact activity + last sale date in ghl_account_stats (anon-readable)
+  // Fire-and-forget — don't block the response on the cache write
+  if (lastContactUpdate || lastSaleDate) {
+    import('@supabase/supabase-js').then(({ createClient }) => {
+      const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+      sb.from('ghl_account_stats').upsert({
+        location_id:         locationId,
+        last_contact_update: lastContactUpdate || null,
+        last_sale_date:      lastSaleDate      || null,
+        synced_at:           new Date().toISOString(),
+      }, { onConflict: 'location_id' }).then(({ error }) => {
+        if (error) console.error('[ghl-location-data] Supabase write error:', error.message)
+      })
+    }).catch(() => {}) // non-fatal
+  }
 
   res.json({
     locationId,
@@ -197,7 +220,8 @@ export default async function handler(req, res) {
     contacts:          contactCount,
     opportunities:     oppsCount,
     conversations:     convoCount,
-    lastContactUpdate, // ISO — most recently updated contact in this sub-account
+    lastContactUpdate, // ISO — most recently updated contact in this sub-account (real GHL contact activity)
+    lastSaleDate,      // ISO — last won opportunity close date (from GHL pipeline)
     lastLogin,         // ISO — last GHL portal login (real-time, agency key)
   })
 }

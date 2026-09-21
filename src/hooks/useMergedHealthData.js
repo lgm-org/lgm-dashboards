@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useGHLAccounts } from './useGHLAccounts'
-import { useCallData }    from './useCallData'
+import { useGHLAccounts }     from './useGHLAccounts'
+import { useCallData }        from './useCallData'
+import { useGhlAccountStats } from './useGhlAccountStats'
 
 const STRIPE_REFRESH_MS = 300_000 // 5 min — match GHL cadence
 
@@ -220,6 +221,7 @@ export function useMergedHealthData() {
   const cliff  = useCliffSheet()
   const calls  = useCallData()
   const { byLocationId: lcBulk, latestMonthById: lcMonths } = useLcChargesBulk()
+  const { statsMap } = useGhlAccountStats()
 
   const accounts = (ghl.accounts || [])
     .filter(g => !EXCLUDED_NAMES.has((g.ghlName || '').toLowerCase().trim()))
@@ -276,25 +278,29 @@ export function useMergedHealthData() {
       // ── Health scoring inputs ──────────────────────────────
       // Prefer Stripe start date (actual payment start) over GHL create date
       stripeStartDate:  billing?.stripeStartDate || g.ghlDateAdded,
-      // lastActivity: take the most recent signal from either source.
-      // LC wallet "latest_month" is a monthly billing bucket (e.g. "2026-07"),
-      // not a daily timestamp — daysSinceLatestMonth returns days since month-end,
-      // so it can be 30+ even when the client was active last week in GHL.
-      // We use Math.min so whichever source is more recent wins.
+      // lastActivity: use GHL contact-level activity (from Supabase cache written by AccountModal opens)
+      // as the primary signal — it's the native GHL "contact last activity" field.
+      // Fall back to LC wallet billing month when the cache hasn't been populated for this account yet.
+      // ghlDaysSinceUpdate (sub-account settings update) is intentionally excluded — it's not contact activity.
       ...(() => {
         const lcDays  = daysSinceLatestMonth(lcMonths[g.ghlId])
-        const ghlDays = g.ghlDaysSinceUpdate
-        const combined = (lcDays !== null && ghlDays !== null)
-          ? Math.min(lcDays, ghlDays)
-          : (lcDays ?? ghlDays)
-        // Track which source was used (for display in table/modal)
-        const usedLc = lcDays !== null && (ghlDays === null || lcDays <= ghlDays)
+        const cachedUpdate = statsMap[g.ghlId]?.lastContactUpdate
+        const ghlContactDays = cachedUpdate
+          ? Math.max(0, Math.floor((Date.now() - new Date(cachedUpdate).getTime()) / 86_400_000))
+          : null
+        const combined = ghlContactDays !== null
+          ? (lcDays !== null ? Math.min(ghlContactDays, lcDays) : ghlContactDays)
+          : lcDays
+        const usedLc = ghlContactDays === null && lcDays !== null
         return {
           lastActivity:        combined,
           lastLcActivityMonth: usedLc ? lcMonths[g.ghlId] : null,
-          _lastActivitySource: usedLc ? 'lc' : (ghlDays !== null ? 'ghl' : null),
+          _lastActivitySource: ghlContactDays !== null ? 'ghl_contact' : (lcDays !== null ? 'lc' : null),
+          ghlContactActivity:  cachedUpdate || null, // ISO — accurate GHL contact activity date
         }
       })(),
+      // Last sale date from GHL pipeline (won opportunity close date)
+      lastSaleDate: statsMap[g.ghlId]?.lastSaleDate || null,
 
       // ── Stripe / billing fields ───────────────────────────
       stripeCustomerId:     billing?.stripeCustomerId     || null,

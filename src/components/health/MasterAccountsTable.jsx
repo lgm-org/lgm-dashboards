@@ -23,16 +23,18 @@ function HealthPill({ score, band }) {
   )
 }
 
-function ActivityBadge({ days }) {
+function ActivityBadge({ days, isAccurate }) {
   if (days === null || days === undefined)
     return <span className="text-brand-muted text-[10px]">—</span>
   const d = Number(days)
-  const color = d <= 7 ? G : d <= 10 ? AMB : RED
+  const color = d <= 7 ? G : d <= 30 ? AMB : RED
   const label = d === 0 ? 'Today' : `${d}d`
   return (
-    <span className="num inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border"
-      style={{ color, background: `${color}12`, borderColor: `${color}28` }}>
+    <span className="num inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold border"
+      style={{ color, background: `${color}12`, borderColor: `${color}28` }}
+      title={isAccurate ? 'GHL contact activity (accurate)' : 'Approximate — open account for real-time data'}>
       {label}
+      {isAccurate && <span style={{ color: G, fontSize: '8px' }}>●</span>}
     </span>
   )
 }
@@ -67,7 +69,7 @@ const COLS = [
   { key: 'lcWalletCharges',    label: 'LC Wallet',    sortable: true,  align: 'right',  tip: 'Cumulative LC platform spend from Cliff\'s data: SMS, AI calls, email, voice. All-time total — not monthly.' },
   { key: 'users',              label: 'Billed Users', sortable: true,  align: 'center', tip: 'Billable user seats (total users minus 1 free admin seat). First user on every account is free.' },
   { key: '_estGP',             label: 'Est. GP%',     sortable: false, align: 'right',  tip: 'Estimated gross profit %: (Monthly Revenue − Est. Monthly LC Cost) ÷ Revenue. LC cost is estimated from all-time wallet spend ÷ tenure months. Will be exact once Cliff\'s daily LC sync is live.' },
-  { key: 'lastActivity',       label: 'Last Update',  sortable: true,  align: 'center', tip: 'Days since last detected platform signal — whichever is more recent: LC wallet charge month-end, or GHL sub-account settings update. Green ≤ 7d · Amber 8–10d · Red > 10d. ⚠ This is NOT user-login activity — GHL does not expose login timestamps via API. Click an account to see real-time CRM & portal-login data.' },
+  { key: 'lastActivity',       label: 'Last Update',  sortable: true,  align: 'center', tip: 'Days since last contact activity in GHL (native field — most recently updated contact). Once an account modal is opened, this switches to the accurate GHL contact activity. Before then: falls back to LC wallet charge month-end. Green ≤ 7d · Amber 8–30d · Red > 30d. Click any row to see real-time contact activity date.' },
   { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Health score 0–100 based on GHL activity recency. 70+ = Healthy · 40–69 = Watch · <40 = At-Risk. Click any row to see the full breakdown.' },
 ]
 
@@ -320,12 +322,11 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                     </td>
                   )}
 
-                  {/* Last Activity */}
+                  {/* Last Activity — uses GHL contact activity from cache when available */}
                   <td className="px-2 py-2 text-center">
                     <ActivityBadge
-                      days={a.lastActivity ?? a.ghlDaysSinceUpdate}
-                      source={a._lastActivitySource}
-                      lcMonth={a.lastLcActivityMonth}
+                      days={a.lastActivity}
+                      isAccurate={a._lastActivitySource === 'ghl_contact'}
                     />
                   </td>
 

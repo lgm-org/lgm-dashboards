@@ -83,13 +83,13 @@ export default function HealthFilterBar({ filters, setFilters, accountTypes, tot
               borderColor: bandFilter !== 'all' ? `${G}50`  : '#E5E7E5',
             }}
           >
-            <option value="all">All Health</option>
-            <option value="healthy">Active (70+)</option>
-            <option value="watch">Slowing (40–69)</option>
-            <option value="at_risk">Stale (&lt;40)</option>
+            <option value="all">All Accounts</option>
+            <option value="healthy">Active — last 30 days</option>
+            <option value="watch">Watch — 30–60 days</option>
+            <option value="at_risk">Inactive — 60+ days</option>
           </select>
           <InfoTip
-            text="Filter by activity band. Active = score 70+ (recent GHL activity + good tenure). Slowing = 40–69. Stale = below 40 (30+ days no GHL activity)."
+            text="Filter by GHL contact activity recency. Active = any contact updated in the last 30 days. Watch = last update was 30–60 days ago. Inactive = no detected activity in 60+ days. Activity is tracked via GHL's contact dateUpdated field — any change to a contact record (message, note, pipeline move, tag) counts."
             position="bottom-end"
           />
         </div>

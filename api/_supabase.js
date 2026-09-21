@@ -18,9 +18,10 @@ export const kv = {
   },
 
   async set(key, value) {
-    await sb
+    const { error } = await sb
       .from('ghl_tokens')
       .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    if (error) console.error('[kv.set]', key, error.message);
   },
 
   async del(key) {

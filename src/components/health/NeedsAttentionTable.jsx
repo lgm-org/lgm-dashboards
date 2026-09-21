@@ -106,7 +106,7 @@ const TABLE_HEADERS = [
   { label: 'Location',           tip: 'City and state from the GHL sub-account profile.' },
   { label: 'Email',              tip: 'Contact email on file in GHL.' },
   { label: 'Last Update',        tip: 'Days since last detected platform signal (LC wallet charge or GHL sub-account update). Not a user-login metric — click the account name to see real-time GHL activity.' },
-  { label: 'Health Score',       tip: 'Activity-based health score 0–100. Based on days since last LC wallet activity (or GHL record update as fallback). 70+ = Active · 40–69 = Slowing · <40 = Stale (shown in this table).' },
+  { label: 'Health Score',       tip: 'Activity-based health score 0–100. Based on days since last detected GHL contact activity. 70+ = Active (≤30 days) · 40–69 = Watch (30–60 days) · <40 = Inactive (60+ days — shown in this table).' },
   { label: 'Recommended Action', tip: 'Rule-based next step generated from the account\'s activity data.' },
   { label: 'Status',             tip: 'Your team\'s outreach status. Tracked per-browser.' },
   { label: 'Actions',            tip: null },

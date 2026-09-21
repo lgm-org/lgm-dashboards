@@ -169,7 +169,7 @@ export default function TransactionBreakdown({ accounts, stripeLoading = false }
             <tr>
               <th className="px-5 sm:px-6 py-2.5 text-left text-brand-muted font-semibold uppercase text-[10px] tracking-wider">Charge Type</th>
               <th className="px-2 py-2.5 text-right text-brand-muted font-semibold uppercase text-[10px] tracking-wider"># Accounts</th>
-              <th className="px-2 py-2.5 text-right text-brand-muted font-semibold uppercase text-[10px] tracking-wider">Total / mo</th>
+              <th className="px-2 py-2.5 text-right text-brand-muted font-semibold uppercase text-[10px] tracking-wider">Total</th>
               <th className="px-5 sm:px-6 py-2.5 text-right text-brand-muted font-semibold uppercase text-[10px] tracking-wider">% of Revenue</th>
             </tr>
           </thead>

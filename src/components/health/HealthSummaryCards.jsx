@@ -120,7 +120,7 @@ export default function HealthSummaryCards({
         icon="🟢"
         accentColor={G}
         delay={20}
-        infoText="Accounts with a detected platform signal in the last 30 days — LC wallet charge (month-end bucket) or GHL sub-account settings update, whichever is more recent. ⚠ This is NOT a user-login count — GHL does not expose login timestamps via API. Click any account to see real-time CRM & portal-login data in the detail modal."
+        infoText="Accounts where a GHL contact was updated in the last 30 days. Any change to a contact record counts — message sent, note added, pipeline move, tag change. This is the same set you see when you select 'Active — last 30 days' in the filter. ⚠ GHL does not expose user login timestamps via API — this is contact activity, not login tracking."
       />
 
       <Card

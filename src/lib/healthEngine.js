@@ -13,15 +13,19 @@ function activityScore(daysSinceUpdate) {
   if (isNaN(d))   return 50
   if (d <= 3)     return 100
   if (d <= 7)     return 90
-  if (d <= 14)    return 75
-  if (d <= 30)    return 60
+  if (d <= 14)    return 80
+  if (d <= 30)    return 70   // active within 30 days = healthy band (matches Active Accounts KPI)
   if (d <= 60)    return 40
   if (d <= 90)    return 20
   return 5
 }
 
 export function scoreAccount(account) {
-  const activity = activityScore(account.lastActivity ?? account.ghlDaysSinceUpdate)
+  // Use only lastActivity — real contact activity from GHL (via Supabase cache or LC wallet proxy).
+  // ghlDaysSinceUpdate (sub-account settings update) is intentionally NOT used here:
+  // settings rarely change so it produces false at-risk classifications for active clients.
+  // Null lastActivity → score 50 (Watch/neutral) until real data is available.
+  const activity = activityScore(account.lastActivity)
   return {
     score: Math.min(100, Math.max(0, activity)),
     parts: { activity },
@@ -49,7 +53,7 @@ function opportunityScore(n) {
 }
 
 export function enhancedScoreAccount(account, liveMetrics) {
-  const activity = activityScore(account.lastActivity ?? account.ghlDaysSinceUpdate)
+  const activity = activityScore(account.lastActivity)
   const contacts = contactScore(liveMetrics?.contacts)
   const opps     = opportunityScore(liveMetrics?.opportunities)
   const score    = Math.round(
@@ -69,19 +73,16 @@ export function classify(score) {
   return 'at_risk'
 }
 
-// LC wallet month = reliable billing proxy → 30-day threshold
-// GHL dateUpdated = settings changes only, NOT client login/usage → 90-day threshold
+// At-risk = no GHL contact activity for 30+ days (only when we have real data)
 export function isAtRisk(account) {
-  const days = account.lastActivity ?? account.ghlDaysSinceUpdate
+  const days = account.lastActivity
   if (days === null || days === undefined) return false
-  const d = Number(days)
-  if (account._lastActivitySource === 'lc') return d > 30
-  return d > 90
+  return Number(days) > 30
 }
 
 // "Needs attention" — account hasn't been touched in 14+ days (watch zone)
 export function isWatch(account) {
-  const days = account.lastActivity ?? account.ghlDaysSinceUpdate
+  const days = account.lastActivity
   if (days === null || days === undefined) return false
   const d = Number(days)
   return d > 14 && d <= 30
@@ -89,8 +90,9 @@ export function isWatch(account) {
 
 export function isUpsellReady(account) {
   if (!account?.planPrice || account.planPrice <= 0) return false
-  const days = Number(account.lastActivity ?? account.ghlDaysSinceUpdate)
-  if (isNaN(days) || days > 60) return false
+  const days = account.lastActivity
+  if (days === null || days === undefined) return false
+  if (Number(days) > 60) return false
   // Must show engagement: users billed OR LC wallet activity
   const engaged = (account.users ?? 0) >= 1 || (account.lcWalletCharges ?? 0) > 0
   if (!engaged) return false
@@ -132,8 +134,8 @@ export function suggestAddon(account) {
 }
 
 export function recommendAction(account) {
-  const days = account.lastActivity ?? account.ghlDaysSinceUpdate
-  if (days === null || days === undefined) return 'Check account status in GHL'
+  const days = account.lastActivity
+  if (days === null || days === undefined) return 'Sync activity data — open account to load'
   const d = Number(days)
   if (d <= 3)   return 'Active — no action needed'
   if (d <= 14)  return 'Check in — account activity slowing'
@@ -145,7 +147,7 @@ export function recommendAction(account) {
 // Summaries used by dashboard KPIs
 export function activeAccounts(accounts) {
   return accounts.filter(a => {
-    const d = Number(a.lastActivity ?? a.ghlDaysSinceUpdate)
+    const d = Number(a.lastActivity)
     return !isNaN(d) && d <= 30
   })
 }

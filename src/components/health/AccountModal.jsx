@@ -51,8 +51,8 @@ function bandColor(band) {
 }
 function bandLabel(band) {
   if (band === 'healthy') return 'Active'
-  if (band === 'watch')   return 'Slowing'
-  return 'Stale'
+  if (band === 'watch')   return 'Watch'
+  return 'Inactive'
 }
 
 function fmtTs(ts) {
@@ -245,19 +245,26 @@ export default function AccountModal({ account, onClose }) {
     ? `LC Platform Activity (last wallet charge, ${account.lastLcActivityMonth})`
     : 'GHL Sub-Account Activity (last record update)'
 
-  // Real-time activity: most recently updated contact (CRM signal — client's team is working in GHL)
+  // Real-time contact activity: most recently updated contact in GHL (accurate native field)
   const realtimeDays = liveMetrics?.lastContactUpdate
     ? Math.max(0, Math.floor((Date.now() - new Date(liveMetrics.lastContactUpdate).getTime()) / (1000 * 60 * 60 * 24)))
     : null
 
-  // Real-time portal login: last time someone logged into the GHL portal for this sub-account
+  // Portal login: last time someone logged into the GHL portal (secondary signal)
   const lastLoginDays = liveMetrics?.lastLogin
     ? Math.max(0, Math.floor((Date.now() - new Date(liveMetrics.lastLogin).getTime()) / (1000 * 60 * 60 * 24)))
     : null
 
-  // Priority: CRM activity (most specific) → portal login → LC wallet proxy
+  // Last sale date from GHL pipeline (won opportunity)
+  const lastSaleDateVal = liveMetrics?.lastSaleDate || null
+  const lastSaleDays = lastSaleDateVal
+    ? Math.max(0, Math.floor((Date.now() - new Date(lastSaleDateVal).getTime()) / (1000 * 60 * 60 * 24)))
+    : null
+
+  // Priority: CRM contact activity (native GHL field, most accurate) → portal login → LC wallet proxy
+  // Note: "user login" is NOT a GHL API field — lastLogin is portal login via agency key
   const days      = realtimeDays ?? lastLoginDays ?? lcDays
-  const actSource = realtimeDays !== null ? 'CRM activity' : lastLoginDays !== null ? 'portal login' : lcSource
+  const actSource = realtimeDays !== null ? 'GHL contact activity' : lastLoginDays !== null ? 'portal login' : lcSource
   const actColor  = days !== null ? (days <= 7 ? G : days <= 30 ? AMB : RED) : undefined
 
   return (
@@ -809,36 +816,55 @@ export default function AccountModal({ account, onClose }) {
                 ))}
               </div>
             ) : null}
-            {(liveMetrics?.lastContactUpdate || liveMetrics?.lastLogin) && (
+            {(liveMetrics?.lastContactUpdate || liveMetrics?.lastLogin || lastSaleDateVal) && (
               <div className="mt-2 space-y-1.5">
-                {liveMetrics?.lastLogin && (
-                  <div className="px-3.5 py-2.5 rounded-xl border border-brand-border bg-brand-bg/60 flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Last GHL Login</p>
-                      <p className="text-[11px] font-semibold mt-0.5" style={{ color: lastLoginDays !== null ? (lastLoginDays <= 7 ? G : lastLoginDays <= 30 ? AMB : RED) : undefined }}>
-                        {lastLoginDays === 0 ? 'Today' : lastLoginDays === 1 ? 'Yesterday' : `${lastLoginDays} days ago`}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-brand-muted">Portal access</p>
-                      <p className="text-[10px] font-medium text-brand-text mt-0.5">
-                        {new Date(liveMetrics.lastLogin).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    </div>
-                  </div>
-                )}
+                {/* Contact activity first — this is the accurate GHL native field */}
                 {liveMetrics?.lastContactUpdate && (
                   <div className="px-3.5 py-2.5 rounded-xl border border-brand-border bg-brand-bg/60 flex items-center justify-between gap-2">
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Last CRM Activity</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Last Contact Activity</p>
                       <p className="text-[11px] font-semibold mt-0.5" style={{ color: realtimeDays !== null ? actColor : undefined }}>
                         {realtimeDays === 0 ? 'Today' : realtimeDays === 1 ? 'Yesterday' : `${realtimeDays} days ago`}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] text-brand-muted">Contact updated</p>
+                      <p className="text-[10px] text-brand-muted">GHL native field</p>
                       <p className="text-[10px] font-medium text-brand-text mt-0.5">
                         {new Date(liveMetrics.lastContactUpdate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {/* Last sale date from GHL pipeline won opportunity */}
+                {lastSaleDateVal && (
+                  <div className="px-3.5 py-2.5 rounded-xl border border-brand-border bg-brand-bg/60 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Last Sale Date</p>
+                      <p className="text-[11px] font-semibold mt-0.5" style={{ color: G }}>
+                        {lastSaleDays === 0 ? 'Today' : lastSaleDays === 1 ? 'Yesterday' : `${lastSaleDays} days ago`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-brand-muted">GHL won opportunity</p>
+                      <p className="text-[10px] font-medium text-brand-text mt-0.5">
+                        {new Date(lastSaleDateVal).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {/* Portal login — secondary signal, not a GHL contact activity field */}
+                {liveMetrics?.lastLogin && (
+                  <div className="px-3.5 py-2.5 rounded-xl border border-brand-border bg-brand-bg/60 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Last Portal Login</p>
+                      <p className="text-[11px] font-semibold mt-0.5" style={{ color: lastLoginDays !== null ? (lastLoginDays <= 7 ? G : lastLoginDays <= 30 ? AMB : RED) : undefined }}>
+                        {lastLoginDays === 0 ? 'Today' : lastLoginDays === 1 ? 'Yesterday' : `${lastLoginDays} days ago`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-brand-muted">GHL portal access</p>
+                      <p className="text-[10px] font-medium text-brand-text mt-0.5">
+                        {new Date(liveMetrics.lastLogin).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </p>
                     </div>
                   </div>
