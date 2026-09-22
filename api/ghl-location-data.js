@@ -167,7 +167,7 @@ export default async function handler(req, res) {
     })
   }
 
-  const [usersR, contactsR, convoR, oppsR, wonOppsR] = await Promise.allSettled([
+  const [usersR, contactsR, convoR, oppsR, wonOppsR, createdR, callR] = await Promise.allSettled([
     ghlFetch(`/users/?locationId=${locationId}`, token),
     // Sort by date_updated desc — first result is the most recently touched contact
     ghlFetch(`/contacts/?locationId=${locationId}&sortBy=date_updated&sortOrder=desc&limit=1`, token),
@@ -176,6 +176,10 @@ export default async function handler(req, res) {
     ghlFetch(`/opportunities/search`, token, 'POST', { locationId, limit: 1 }),
     // Last won opportunity — sort by lastStatusChangeDate desc to get most recent win
     ghlFetch(`/opportunities/search`, token, 'POST', { locationId, status: 'won', sortBy: 'lastStatusChangeDate', sortOrder: 'desc', limit: 1 }),
+    // Most recently created contact
+    ghlFetch(`/contacts/?locationId=${locationId}&sortBy=date_added&sortOrder=desc&limit=1`, token),
+    // Most recent call conversation
+    ghlFetch(`/conversations/search?locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=1`, token),
   ])
 
   const users    = usersR.status    === 'fulfilled' ? usersR.value    : null
@@ -183,6 +187,15 @@ export default async function handler(req, res) {
   const convos   = convoR.status    === 'fulfilled' ? convoR.value    : null
   const opps     = oppsR.status     === 'fulfilled' ? oppsR.value     : null
   const wonOpps  = wonOppsR.status  === 'fulfilled' ? wonOppsR.value  : null
+  const created  = createdR.status  === 'fulfilled' ? createdR.value  : null
+  const calls    = callR.status     === 'fulfilled' ? callR.value     : null
+
+  // GHL returns lastMessageDate as epoch ms on conversations; normalize to ISO
+  const toIso = (v) => {
+    if (v === null || v === undefined || v === '') return null
+    const d = new Date(typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v)
+    return isNaN(d.getTime()) ? null : d.toISOString()
+  }
 
   // Extract counts, trying multiple known GHL response shapes
   const userCount    = users?.json?.users?.length            ?? null
@@ -197,16 +210,21 @@ export default async function handler(req, res) {
   const wonOpp    = wonOpps?.json?.opportunities?.[0] || null
   const lastSaleDate = wonOpp?.lastStatusChangeDate || wonOpp?.updatedAt || null
 
-  // Cache contact activity + last sale date in ghl_account_stats (anon-readable)
+  const lastContactCreated = toIso(created?.json?.contacts?.[0]?.dateAdded)
+  const lastCallDate       = toIso(calls?.json?.conversations?.[0]?.lastMessageDate)
+
+  // Cache all four activity signals in ghl_account_stats (anon-readable)
   // Fire-and-forget — don't block the response on the cache write
-  if (lastContactUpdate || lastSaleDate) {
+  if (lastContactUpdate || lastContactCreated || lastCallDate || lastSaleDate) {
     import('@supabase/supabase-js').then(({ createClient }) => {
       const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
       sb.from('ghl_account_stats').upsert({
-        location_id:         locationId,
-        last_contact_update: lastContactUpdate || null,
-        last_sale_date:      lastSaleDate      || null,
-        synced_at:           new Date().toISOString(),
+        location_id:          locationId,
+        last_contact_update:  lastContactUpdate  || null,
+        last_contact_created: lastContactCreated || null,
+        last_call_date:       lastCallDate       || null,
+        last_sale_date:       lastSaleDate       || null,
+        synced_at:            new Date().toISOString(),
       }, { onConflict: 'location_id' }).then(({ error }) => {
         if (error) console.error('[ghl-location-data] Supabase write error:', error.message)
       })
@@ -220,8 +238,10 @@ export default async function handler(req, res) {
     contacts:          contactCount,
     opportunities:     oppsCount,
     conversations:     convoCount,
-    lastContactUpdate, // ISO — most recently updated contact in this sub-account (real GHL contact activity)
-    lastSaleDate,      // ISO — last won opportunity close date (from GHL pipeline)
+    lastContactUpdate,  // ISO — most recently updated contact in this sub-account
+    lastContactCreated, // ISO — most recently created contact
+    lastCallDate,       // ISO — most recent call conversation
+    lastSaleDate,       // ISO — last won opportunity close date (from GHL pipeline)
     lastLogin,         // ISO — last GHL portal login (real-time, agency key)
   })
 }

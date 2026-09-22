@@ -283,24 +283,34 @@ export function useMergedHealthData() {
       // Fall back to LC wallet billing month when the cache hasn't been populated for this account yet.
       // ghlDaysSinceUpdate (sub-account settings update) is intentionally excluded — it's not contact activity.
       ...(() => {
-        const lcDays  = daysSinceLatestMonth(lcMonths[g.ghlId])
-        const cachedUpdate = statsMap[g.ghlId]?.lastContactUpdate
-        const ghlContactDays = cachedUpdate
-          ? Math.max(0, Math.floor((Date.now() - new Date(cachedUpdate).getTime()) / 86_400_000))
+        const lcDays = daysSinceLatestMonth(lcMonths[g.ghlId])
+        const s = statsMap[g.ghlId] || {}
+        // Four GHL activity signals — Last Activity is whichever is newest
+        const signals = [
+          { key: 'contact_updated', date: s.lastContactUpdate  },
+          { key: 'contact_created', date: s.lastContactCreated },
+          { key: 'call',            date: s.lastCallDate       },
+          { key: 'sale',            date: s.lastSaleDate       },
+        ].filter(x => x.date)
+        const newest = signals.length
+          ? signals.reduce((a, b) => (new Date(b.date) > new Date(a.date) ? b : a))
           : null
-        const combined = ghlContactDays !== null
-          ? (lcDays !== null ? Math.min(ghlContactDays, lcDays) : ghlContactDays)
-          : lcDays
-        const usedLc = ghlContactDays === null && lcDays !== null
+        const ghlDays = newest
+          ? Math.max(0, Math.floor((Date.now() - new Date(newest.date).getTime()) / 86_400_000))
+          : null
+        const usedLc = ghlDays === null && lcDays !== null
         return {
-          lastActivity:        combined,
+          lastActivity:        ghlDays !== null ? ghlDays : lcDays,
           lastLcActivityMonth: usedLc ? lcMonths[g.ghlId] : null,
-          _lastActivitySource: ghlContactDays !== null ? 'ghl_contact' : (lcDays !== null ? 'lc' : null),
-          ghlContactActivity:  cachedUpdate || null, // ISO — accurate GHL contact activity date
+          _lastActivitySource: ghlDays !== null ? 'ghl_contact' : (lcDays !== null ? 'lc' : null),
+          _lastActivitySignal: newest?.key || null,
+          ghlContactActivity:  newest?.date || null,
+          lastContactUpdate:   s.lastContactUpdate  || null,
+          lastContactCreated:  s.lastContactCreated || null,
+          lastCallDate:        s.lastCallDate       || null,
+          lastSaleDate:        s.lastSaleDate       || null,
         }
       })(),
-      // Last sale date from GHL pipeline (won opportunity close date)
-      lastSaleDate: statsMap[g.ghlId]?.lastSaleDate || null,
 
       // ── Stripe / billing fields ───────────────────────────
       stripeCustomerId:     billing?.stripeCustomerId     || null,

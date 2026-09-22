@@ -32,7 +32,7 @@ function ActivityBadge({ days, isAccurate }) {
   return (
     <span className="num inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold border"
       style={{ color, background: `${color}12`, borderColor: `${color}28` }}
-      title={isAccurate ? 'GHL contact activity (accurate)' : 'Approximate — open account for real-time data'}>
+      title={isAccurate ? 'Newest of: contact created · contact updated · last call · last sale (GHL)' : 'LC wallet proxy — GHL data not synced yet for this account'}>
       {label}
       {isAccurate && <span style={{ color: G, fontSize: '8px' }}>●</span>}
     </span>

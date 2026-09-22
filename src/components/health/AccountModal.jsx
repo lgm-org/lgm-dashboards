@@ -245,26 +245,33 @@ export default function AccountModal({ account, onClose }) {
     ? `LC Platform Activity (last wallet charge, ${account.lastLcActivityMonth})`
     : 'GHL Sub-Account Activity (last record update)'
 
-  // Real-time contact activity: most recently updated contact in GHL (accurate native field)
-  const realtimeDays = liveMetrics?.lastContactUpdate
-    ? Math.max(0, Math.floor((Date.now() - new Date(liveMetrics.lastContactUpdate).getTime()) / (1000 * 60 * 60 * 24)))
+  const daysAgo = (iso) => iso
+    ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24)))
     : null
 
-  // Portal login: last time someone logged into the GHL portal (secondary signal)
-  const lastLoginDays = liveMetrics?.lastLogin
-    ? Math.max(0, Math.floor((Date.now() - new Date(liveMetrics.lastLogin).getTime()) / (1000 * 60 * 60 * 24)))
-    : null
+  // Four GHL activity signals — live from the modal fetch, falling back to the cached values
+  const contactUpdatedVal = liveMetrics?.lastContactUpdate  ?? account.lastContactUpdate  ?? null
+  const contactCreatedVal = liveMetrics?.lastContactCreated ?? account.lastContactCreated ?? null
+  const lastCallVal       = liveMetrics?.lastCallDate       ?? account.lastCallDate       ?? null
+  const lastSaleDateVal   = liveMetrics?.lastSaleDate       ?? account.lastSaleDate       ?? null
 
-  // Last sale date from GHL pipeline (won opportunity)
-  const lastSaleDateVal = liveMetrics?.lastSaleDate || null
-  const lastSaleDays = lastSaleDateVal
-    ? Math.max(0, Math.floor((Date.now() - new Date(lastSaleDateVal).getTime()) / (1000 * 60 * 60 * 24)))
-    : null
+  const realtimeDays      = daysAgo(contactUpdatedVal)
+  const contactCreatedDays = daysAgo(contactCreatedVal)
+  const lastCallDays      = daysAgo(lastCallVal)
+  const lastSaleDays      = daysAgo(lastSaleDateVal)
+  const lastLoginDays     = daysAgo(liveMetrics?.lastLogin)
 
-  // Priority: CRM contact activity (native GHL field, most accurate) → portal login → LC wallet proxy
-  // Note: "user login" is NOT a GHL API field — lastLogin is portal login via agency key
-  const days      = realtimeDays ?? lastLoginDays ?? lcDays
-  const actSource = realtimeDays !== null ? 'GHL contact activity' : lastLoginDays !== null ? 'portal login' : lcSource
+  const signalRows = [
+    { label: 'Last Contact Updated', days: realtimeDays,       date: contactUpdatedVal, note: 'GHL contact record' },
+    { label: 'Last Contact Created', days: contactCreatedDays, date: contactCreatedVal, note: 'GHL new contact' },
+    { label: 'Last Call',            days: lastCallDays,       date: lastCallVal,       note: 'GHL call conversation' },
+    { label: 'Last Sale',            days: lastSaleDays,       date: lastSaleDateVal,   note: 'GHL won opportunity' },
+  ].filter(r => r.date)
+
+  // Last Activity = newest of the four GHL signals; LC wallet only when none exist
+  const ghlDays   = signalRows.length ? Math.min(...signalRows.map(r => r.days)) : null
+  const days      = ghlDays ?? lcDays
+  const actSource = ghlDays !== null ? 'GHL activity (newest of contacts / calls / sales)' : lcSource
   const actColor  = days !== null ? (days <= 7 ? G : days <= 30 ? AMB : RED) : undefined
 
   return (
@@ -293,7 +300,7 @@ export default function AccountModal({ account, onClose }) {
                     Last active: <span className="font-semibold" style={{ color: actColor }}>
                       {days === 0 ? 'today' : `${days}d ago`}
                     </span>
-                    {(realtimeDays !== null || lastLoginDays !== null) && (
+                    {(ghlDays !== null || lastLoginDays !== null) && (
                       <span className="ml-1 text-[9px] font-semibold px-1 py-0.5 rounded" style={{ background: '#8CC63F15', color: '#3a6b10' }}>
                         live
                       </span>
@@ -393,7 +400,7 @@ export default function AccountModal({ account, onClose }) {
             )}
             <div>
               <p className="text-[10px] text-brand-muted uppercase tracking-wider">
-                {realtimeDays !== null ? 'Last Active in GHL' : 'Last Active'}
+                {ghlDays !== null ? 'Last Active in GHL' : 'Last Active'}
               </p>
               <p className="num font-medium mt-0.5" style={{ color: days !== null ? actColor : undefined }}>
                 {days !== null ? (days === 0 ? 'Today' : `${days} days ago`) : '—'}
@@ -816,43 +823,25 @@ export default function AccountModal({ account, onClose }) {
                 ))}
               </div>
             ) : null}
-            {(liveMetrics?.lastContactUpdate || liveMetrics?.lastLogin || lastSaleDateVal) && (
+            {(signalRows.length > 0 || liveMetrics?.lastLogin) && (
               <div className="mt-2 space-y-1.5">
-                {/* Contact activity first — this is the accurate GHL native field */}
-                {liveMetrics?.lastContactUpdate && (
-                  <div className="px-3.5 py-2.5 rounded-xl border border-brand-border bg-brand-bg/60 flex items-center justify-between gap-2">
+                {signalRows.map(r => (
+                  <div key={r.label} className="px-3.5 py-2.5 rounded-xl border border-brand-border bg-brand-bg/60 flex items-center justify-between gap-2">
                     <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Last Contact Activity</p>
-                      <p className="text-[11px] font-semibold mt-0.5" style={{ color: realtimeDays !== null ? actColor : undefined }}>
-                        {realtimeDays === 0 ? 'Today' : realtimeDays === 1 ? 'Yesterday' : `${realtimeDays} days ago`}
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">{r.label}</p>
+                      <p className="text-[11px] font-semibold mt-0.5" style={{ color: r.days <= 7 ? G : r.days <= 30 ? AMB : RED }}>
+                        {r.days === 0 ? 'Today' : r.days === 1 ? 'Yesterday' : `${r.days} days ago`}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-[10px] text-brand-muted">GHL native field</p>
+                      <p className="text-[10px] text-brand-muted">{r.note}</p>
                       <p className="text-[10px] font-medium text-brand-text mt-0.5">
-                        {new Date(liveMetrics.lastContactUpdate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </p>
                     </div>
                   </div>
-                )}
-                {/* Last sale date from GHL pipeline won opportunity */}
-                {lastSaleDateVal && (
-                  <div className="px-3.5 py-2.5 rounded-xl border border-brand-border bg-brand-bg/60 flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Last Sale Date</p>
-                      <p className="text-[11px] font-semibold mt-0.5" style={{ color: G }}>
-                        {lastSaleDays === 0 ? 'Today' : lastSaleDays === 1 ? 'Yesterday' : `${lastSaleDays} days ago`}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-brand-muted">GHL won opportunity</p>
-                      <p className="text-[10px] font-medium text-brand-text mt-0.5">
-                        {new Date(lastSaleDateVal).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                {/* Portal login — secondary signal, not a GHL contact activity field */}
+                ))}
+                {/* Portal login — informational only, not part of Last Activity */}
                 {liveMetrics?.lastLogin && (
                   <div className="px-3.5 py-2.5 rounded-xl border border-brand-border bg-brand-bg/60 flex items-center justify-between gap-2">
                     <div>
