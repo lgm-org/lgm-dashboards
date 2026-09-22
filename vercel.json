@@ -18,6 +18,10 @@
     {
       "path": "/api/cron-refresh-master-cache",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron-call-sync",
+      "schedule": "* * * * *"
     }
   ]
 }
