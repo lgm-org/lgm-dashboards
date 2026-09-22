@@ -169,16 +169,16 @@ export default async function handler(req, res) {
 
   const [usersR, contactsR, convoR, oppsR, wonOppsR, createdR, callR] = await Promise.allSettled([
     ghlFetch(`/users/?locationId=${locationId}`, token),
-    // Sort by date_updated desc — first result is the most recently touched contact
-    ghlFetch(`/contacts/?locationId=${locationId}&sortBy=date_updated&sortOrder=desc&limit=1`, token),
+    // Most recently updated contact (contacts/search is the only contacts endpoint that supports sorting)
+    ghlFetch('/contacts/search', token, 'POST', { locationId, pageLimit: 1, sort: [{ field: 'dateUpdated', direction: 'desc' }] }),
+    // Needs conversations.readonly scope — currently 401 until the marketplace app scope is added
     ghlFetch(`/conversations/search?locationId=${locationId}&limit=1`, token),
-    // opportunities/search is a POST endpoint — GHL requires "locationId" (not "location_id")
-    ghlFetch(`/opportunities/search`, token, 'POST', { locationId, limit: 1 }),
-    // Last won opportunity — sort by lastStatusChangeDate desc to get most recent win
-    ghlFetch(`/opportunities/search`, token, 'POST', { locationId, status: 'won', sortBy: 'lastStatusChangeDate', sortOrder: 'desc', limit: 1 }),
+    ghlFetch(`/opportunities/search?location_id=${locationId}&limit=1`, token),
+    // Won opportunities — GET with status=won; newest lastStatusChangeAt is picked client-side
+    ghlFetch(`/opportunities/search?location_id=${locationId}&status=won&limit=100`, token),
     // Most recently created contact
-    ghlFetch(`/contacts/?locationId=${locationId}&sortBy=date_added&sortOrder=desc&limit=1`, token),
-    // Most recent call conversation
+    ghlFetch('/contacts/search', token, 'POST', { locationId, pageLimit: 1, sort: [{ field: 'dateAdded', direction: 'desc' }] }),
+    // Most recent call — same scope gap as conversations above
     ghlFetch(`/conversations/search?locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=1`, token),
   ])
 
@@ -207,8 +207,10 @@ export default async function handler(req, res) {
   const lastContactUpdate = contacts?.json?.contacts?.[0]?.dateUpdated || null
 
   // Most recent won opportunity close date
-  const wonOpp    = wonOpps?.json?.opportunities?.[0] || null
-  const lastSaleDate = wonOpp?.lastStatusChangeDate || wonOpp?.updatedAt || null
+  const lastSaleDate = toIso((wonOpps?.json?.opportunities || []).reduce((best, o) => {
+    const v = o.lastStatusChangeAt || o.lastStatusChangeDate || o.updatedAt
+    return v && (!best || new Date(v) > new Date(best)) ? v : best
+  }, null))
 
   const lastContactCreated = toIso(created?.json?.contacts?.[0]?.dateAdded)
   const lastCallDate       = toIso(calls?.json?.conversations?.[0]?.lastMessageDate)

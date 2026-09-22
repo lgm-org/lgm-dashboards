@@ -1,8 +1,8 @@
-// Batch-syncs GHL contact activity for all sub-accounts into ghl_account_stats.
+// Batch-syncs GHL activity signals for all sub-accounts into ghl_account_stats.
 // Called fire-and-forget from the health dashboard on load (and from the Sync button).
-// Processes up to 20 accounts per call; paginated via ?skip= for large batches.
-// Each synced row gives the dashboard accurate "last contact activity" data without needing
-// individual modal opens.
+// Processes up to 20 accounts per call; paginated via ?skip=.
+// Four signals per account: last contact updated, last contact created, last call, last won sale.
+// ?debug=1 returns per-location GHL status codes and Supabase errors.
 
 import { kv } from './_supabase.js'
 import { createClient } from '@supabase/supabase-js'
@@ -52,12 +52,10 @@ async function getCompanyToken() {
 
 async function getLocationToken(locationId, companyAccessToken) {
   try {
-    // Try cached token first
     const cached = await kv.get(`ghl:token:${locationId}`)
     if (cached?.accessToken && Date.now() < cached.expiresAt - 10 * 60 * 1000) {
       return cached.accessToken
     }
-    // Try refreshing cached token
     if (cached?.refreshToken) {
       const refreshed = await refreshToken(cached)
       if (refreshed) {
@@ -65,7 +63,6 @@ async function getLocationToken(locationId, companyAccessToken) {
         return refreshed.accessToken
       }
     }
-    // Fall back to company-token-derived location token
     if (!companyAccessToken) return null
     const res = await fetch(`${GHL_BASE}/oauth/locationToken`, {
       method: 'POST',
@@ -89,18 +86,6 @@ async function getLocationToken(locationId, companyAccessToken) {
   } catch { return null }
 }
 
-async function fetchContactActivity(locationId, token) {
-  try {
-    const res = await fetch(
-      `${GHL_BASE}/contacts/?locationId=${locationId}&sortBy=date_updated&sortOrder=desc&limit=1`,
-      { headers: { Authorization: `Bearer ${token}`, Version: GHL_VER } }
-    )
-    if (!res.ok) return null
-    const data = await res.json()
-    return data?.contacts?.[0]?.dateUpdated || null
-  } catch { return null }
-}
-
 // GHL returns lastMessageDate as epoch ms on conversations; normalize everything to ISO
 function toIso(v) {
   if (v === null || v === undefined || v === '') return null
@@ -108,54 +93,81 @@ function toIso(v) {
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
-async function fetchContactCreated(locationId, token) {
+async function ghl(path, token, method = 'GET', body = null) {
   try {
-    const res = await fetch(
-      `${GHL_BASE}/contacts/?locationId=${locationId}&sortBy=date_added&sortOrder=desc&limit=1`,
-      { headers: { Authorization: `Bearer ${token}`, Version: GHL_VER } }
-    )
-    if (!res.ok) return null
-    const data = await res.json()
-    return toIso(data?.contacts?.[0]?.dateAdded)
-  } catch { return null }
+    const opts = { method, headers: { Authorization: `Bearer ${token}`, Version: GHL_VER, 'Content-Type': 'application/json' } }
+    if (body) opts.body = JSON.stringify(body)
+    const res  = await fetch(`${GHL_BASE}${path}`, opts)
+    const text = await res.text()
+    let json = null
+    try { json = JSON.parse(text) } catch {}
+    return { status: res.status, json, snippet: res.ok ? null : text.slice(0, 200) }
+  } catch (err) {
+    return { status: 0, json: null, snippet: err.message }
+  }
 }
 
-async function fetchLastCallDate(locationId, token) {
-  try {
-    const res = await fetch(
-      `${GHL_BASE}/conversations/search?locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=1`,
-      { headers: { Authorization: `Bearer ${token}`, Version: GHL_VER } }
-    )
-    if (!res.ok) return null
-    const data = await res.json()
-    return toIso(data?.conversations?.[0]?.lastMessageDate)
-  } catch { return null }
+// Try request variants in order; first 2xx with a date wins. Debug output shows which one worked.
+async function tryVariants(variants) {
+  const tried = []
+  for (const v of variants) {
+    const r = await ghl(v.path, v.token, v.method || 'GET', v.body || null)
+    const date = r.status >= 200 && r.status < 300 ? toIso(v.extract(r.json)) : null
+    tried.push({ variant: v.label, status: r.status, err: r.snippet, gotDate: !!date })
+    if (r.status >= 200 && r.status < 300) return { date, tried }
+  }
+  return { date: null, tried }
 }
 
-async function fetchLastSaleDate(locationId, token) {
-  try {
-    const res = await fetch(`${GHL_BASE}/opportunities/search`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, Version: GHL_VER, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ locationId, status: 'won', sortBy: 'lastStatusChangeDate', sortOrder: 'desc', limit: 1 }),
-    })
-    if (!res.ok) return null
-    const data = await res.json()
-    const opp = data?.opportunities?.[0]
-    return opp?.lastStatusChangeDate || opp?.updatedAt || null
-  } catch { return null }
+const newestOf = (list, pick) => list.reduce((best, o) => {
+  const v = pick(o); return v && (!best || new Date(v) > new Date(best)) ? v : best
+}, null)
+
+async function fetchSignals(locationId, token, agencyKey) {
+  const [upd, crt, call, won] = await Promise.all([
+    tryVariants([
+      { label: 'contacts/search sort dateUpdated', token, method: 'POST', path: '/contacts/search',
+        body: { locationId, pageLimit: 1, sort: [{ field: 'dateUpdated', direction: 'desc' }] },
+        extract: j => j?.contacts?.[0]?.dateUpdated },
+    ]),
+    tryVariants([
+      { label: 'contacts/search sort dateAdded', token, method: 'POST', path: '/contacts/search',
+        body: { locationId, pageLimit: 1, sort: [{ field: 'dateAdded', direction: 'desc' }] },
+        extract: j => j?.contacts?.[0]?.dateAdded },
+    ]),
+    tryVariants([
+      { label: 'conversations/search (location token)', token,
+        path: `/conversations/search?locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=1`,
+        extract: j => j?.conversations?.[0]?.lastMessageDate },
+      { label: 'conversations/search (agency key)', token: agencyKey,
+        path: `/conversations/search?locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=1`,
+        extract: j => j?.conversations?.[0]?.lastMessageDate },
+    ]),
+    tryVariants([
+      { label: 'opportunities/search GET status=won', token,
+        path: `/opportunities/search?location_id=${locationId}&status=won&limit=100`,
+        extract: j => newestOf(j?.opportunities || [], o => o.lastStatusChangeAt || o.lastStatusChangeDate || o.updatedAt) },
+      { label: 'opportunities/search POST filters', token, method: 'POST', path: '/opportunities/search',
+        body: { locationId, pageLimit: 1, filters: [{ field: 'status', operator: 'eq', value: 'won' }],
+                sort: [{ field: 'lastStatusChangeAt', direction: 'desc' }] },
+        extract: j => j?.opportunities?.[0]?.lastStatusChangeAt || j?.opportunities?.[0]?.updatedAt },
+    ]),
+  ])
+  return {
+    dates: { contactUpdate: upd.date, contactCreated: crt.date, callDate: call.date, saleDate: won.date },
+    statuses: { contactUpdate: upd.tried, contactCreated: crt.tried, callDate: call.tried, saleDate: won.tried },
+  }
 }
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store')
 
-  // Fetch all GHL location IDs via agency key
   const agencyKey = process.env.GHL_AGENCY_API_KEY
   if (!agencyKey) return res.status(500).json({ error: 'GHL_AGENCY_API_KEY not configured' })
 
-  const skip = parseInt(req.query.skip || '0', 10)
+  const skip  = parseInt(req.query.skip || '0', 10)
+  const debug = req.query.debug === '1'
 
-  // Load all locations
   let allLocations = []
   try {
     let s = 0
@@ -173,50 +185,54 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: `Failed to load locations: ${err.message}` })
   }
 
-  const total    = allLocations.length
+  const total     = allLocations.length
   const pageBatch = allLocations.slice(skip, skip + BATCH_SIZE)
 
   if (pageBatch.length === 0) {
     return res.json({ synced: 0, total, hasMore: false, skip })
   }
 
-  // Get company token once, shared across all location token lookups
   const companyToken = await getCompanyToken()
-
-  // Process the batch in parallel
   const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
 
   const results = await Promise.allSettled(
     pageBatch.map(async (locationId) => {
       const token = await getLocationToken(locationId, companyToken)
-      if (!token) return { locationId, skipped: true }
+      if (!token) return { locationId, skipped: 'no_token' }
 
-      const results = await Promise.allSettled([
-        fetchContactActivity(locationId, token),
-        fetchContactCreated(locationId, token),
-        fetchLastCallDate(locationId, token),
-        fetchLastSaleDate(locationId, token),
-      ])
-      const [contactUpdate, contactCreated, callDate, saleDate] =
-        results.map(r => (r.status === 'fulfilled' ? r.value : null))
+      const { dates, statuses } = await fetchSignals(locationId, token, agencyKey)
+      const hasAny = Object.values(dates).some(Boolean)
 
-      if (contactUpdate || contactCreated || callDate || saleDate) {
-        await sb.from('ghl_account_stats').upsert({
+      let upsertError = null
+      if (hasAny) {
+        const { error } = await sb.from('ghl_account_stats').upsert({
           location_id:          locationId,
-          last_contact_update:  contactUpdate  || null,
-          last_contact_created: contactCreated || null,
-          last_call_date:       callDate       || null,
-          last_sale_date:       saleDate       || null,
+          last_contact_update:  dates.contactUpdate,
+          last_contact_created: dates.contactCreated,
+          last_call_date:       dates.callDate,
+          last_sale_date:       dates.saleDate,
           synced_at:            new Date().toISOString(),
         }, { onConflict: 'location_id' })
+        if (error) {
+          upsertError = error.message
+          console.error('[ghl-sync-activity-batch] upsert failed', locationId, error.message)
+        }
       }
 
-      return { locationId, contactUpdate, contactCreated, callDate, saleDate }
+      return { locationId, written: hasAny && !upsertError, dates, statuses, upsertError }
     })
   )
 
-  const synced  = results.filter(r => r.status === 'fulfilled' && !r.value.skipped).length
-  const hasMore = skip + BATCH_SIZE < total
+  const rows     = results.map(r => (r.status === 'fulfilled' ? r.value : { error: r.reason?.message }))
+  const written  = rows.filter(r => r.written).length
+  const noToken  = rows.filter(r => r.skipped === 'no_token').length
+  const noData   = rows.filter(r => r.dates && !Object.values(r.dates).some(Boolean)).length
+  const dbErrors = rows.filter(r => r.upsertError).length
+  const hasMore  = skip + BATCH_SIZE < total
 
-  res.json({ synced, total, hasMore, skip, nextSkip: skip + BATCH_SIZE })
+  res.json({
+    synced: written, noToken, noData, dbErrors,
+    total, hasMore, skip, nextSkip: skip + BATCH_SIZE,
+    ...(debug ? { details: rows } : {}),
+  })
 }
