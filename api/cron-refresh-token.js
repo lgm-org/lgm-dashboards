@@ -7,13 +7,51 @@
 // one attempted while still fresh. Refreshing on a schedule sidesteps that
 // entirely rather than depending on someone actually using the dashboard
 // often enough to trigger a timely reactive refresh.
+import { createClient } from '@supabase/supabase-js'
 import { kv } from './_supabase.js'
 import { setTokenStatus, credentialDrift } from './_ghlAuth.js'
 
 const GHL_BASE   = 'https://services.leadconnectorhq.com'
 const COMPANY_ID = 'MKJeZKBhrN9uLt4ZWZCa'
 
+// This cron runs on every dashboard project (same schedule, same shared token table).
+// Two guards keep them from refreshing the same token twice within seconds of each other —
+// GHL rotates the refresh token on use, so a double refresh would leave one project holding
+// a dead refresh token:
+//   1. Skip when the token still has more than FRESH_MS left (someone already refreshed it).
+//   2. A 2-minute compare-and-set lock row for the window where both read a stale token.
+const FRESH_MS   = 20 * 60 * 60 * 1000
+const LOCK_KEY   = 'ghl:refresh_lock'
+const LOCK_TTL   = 2 * 60 * 1000
+
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+const sb = () => createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+
+async function acquireLock() {
+  const db    = sb()
+  const now   = new Date()
+  const until = new Date(now.getTime() + LOCK_TTL).toISOString()
+  const { data: row } = await db.from('ghl_tokens').select('value, updated_at').eq('key', LOCK_KEY).maybeSingle()
+  if (!row) {
+    const { error } = await db.from('ghl_tokens').insert({ key: LOCK_KEY, value: { until }, updated_at: now.toISOString() })
+    return !error // unique-key violation → another project inserted first
+  }
+  if (row.value?.until && row.value.until > now.toISOString()) return false
+  const { data } = await db.from('ghl_tokens')
+    .update({ value: { until }, updated_at: now.toISOString() })
+    .eq('key', LOCK_KEY).eq('updated_at', row.updated_at)
+    .select('key')
+  return !!data?.length
+}
+
+async function releaseLock() {
+  try {
+    await sb().from('ghl_tokens')
+      .update({ value: { until: new Date(0).toISOString() }, updated_at: new Date().toISOString() })
+      .eq('key', LOCK_KEY)
+  } catch {}
+}
 
 // A credentials rejection is permanent config drift, not a transient error —
 // retrying it just burns time and muddies the logs.
@@ -64,10 +102,32 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: 'Credential mismatch', diagnosis: drift })
     }
 
-    let { ok, tokens } = await attemptRefresh(company.refreshToken)
-    if (!ok && !isCredentialError(tokens)) {
-      await sleep(3000)
-      ;({ ok, tokens } = await attemptRefresh(company.refreshToken))
+    const remainingMs = (company.expiresAt || 0) - Date.now()
+    if (remainingMs > FRESH_MS) {
+      const hours = Math.round(remainingMs / 3_600_000)
+      console.log(`[cron-refresh-token] token still fresh (${hours}h left) — skipped`)
+      return res.status(200).json({ ok: true, skipped: 'fresh', hoursLeft: hours })
+    }
+
+    if (!(await acquireLock())) {
+      console.log('[cron-refresh-token] another dashboard is refreshing right now — skipped')
+      return res.status(200).json({ ok: true, skipped: 'locked' })
+    }
+
+    let ok, tokens
+    try {
+      // Re-read under the lock: the other project may have refreshed while we waited.
+      const latest = await kv.get(`ghl:company_token:${COMPANY_ID}`)
+      if (latest?.expiresAt && latest.expiresAt - Date.now() > FRESH_MS) {
+        return res.status(200).json({ ok: true, skipped: 'fresh' })
+      }
+      ;({ ok, tokens } = await attemptRefresh(latest?.refreshToken || company.refreshToken))
+      if (!ok && !isCredentialError(tokens)) {
+        await sleep(3000)
+        ;({ ok, tokens } = await attemptRefresh(latest?.refreshToken || company.refreshToken))
+      }
+    } finally {
+      await releaseLock()
     }
 
     if (!ok) {
