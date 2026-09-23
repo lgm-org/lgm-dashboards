@@ -215,6 +215,7 @@ export default function AccountModal({ account, onClose }) {
     ...account,
     lastContactUpdate:  liveMetrics?.lastContactUpdate  ?? account.lastContactUpdate  ?? null,
     lastContactCreated: liveMetrics?.lastContactCreated ?? account.lastContactCreated ?? null,
+    lastCallDate:       liveMetrics?.lastCallDate       ?? account.lastCallDate       ?? null,
     lastSaleDate:       liveMetrics?.lastSaleDate       ?? account.lastSaleDate       ?? null,
   }
   const { score, parts, signalDays } = scoreAccount(liveAccount)
@@ -324,7 +325,7 @@ export default function AccountModal({ account, onClose }) {
             <div className="bg-brand-bg rounded-xl p-3 border border-brand-border text-center relative">
               <div className="absolute top-2 right-2">
                 <InfoTip
-                  text={"Three GHL signals are each scored by days since they last happened:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\n• Last contact created\n• Last contact updated\n• Last won sale\nHealth score = the highest of the three (i.e. the most recent signal).\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.\nContact count and opportunity count are NOT part of the score."}
+                  text={"Four GHL signals are each scored by days since they last happened:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\n• Last contact created\n• Last contact updated\n• Last call\n• Last won sale\nHealth score = the highest of the four (i.e. the most recent signal).\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.\nContact count and opportunity count are NOT part of the score."}
                   position="top-end"
                 />
               </div>
@@ -353,13 +354,14 @@ export default function AccountModal({ account, onClose }) {
               <>
                 <SubScoreBar label={`Last contact created — ${signalDays.contactCreated !== null ? `${signalDays.contactCreated}d ago` : 'none'}`} score={parts.contactCreated ?? 0} />
                 <SubScoreBar label={`Last contact updated — ${signalDays.contactUpdated !== null ? `${signalDays.contactUpdated}d ago` : 'none'}`} score={parts.contactUpdated ?? 0} />
+                <SubScoreBar label={`Last call — ${signalDays.call !== null ? `${signalDays.call}d ago` : 'none recorded'}`} score={parts.call ?? 0} />
                 <SubScoreBar label={`Last won sale — ${signalDays.sale !== null ? `${signalDays.sale}d ago` : 'none recorded'}`} score={parts.sale ?? 0} />
               </>
             ) : (
               <SubScoreBar label={activityLabel} score={parts.activity} />
             )}
             <p className="text-[10px] text-brand-muted leading-snug">
-              Each signal: days since → ≤3d 100 · ≤7d 90 · ≤14d 80 · ≤30d 70 · ≤60d 40 · ≤90d 20 · &gt;90d 5. Health score = highest of the three.
+              Each signal: days since → ≤3d 100 · ≤7d 90 · ≤14d 80 · ≤30d 70 · ≤60d 40 · ≤90d 20 · &gt;90d 5. Health score = highest of the four.
             </p>
             <div className="mt-3 pt-3 border-t border-brand-border">
               <div className="flex items-center justify-between text-[11px] mb-1.5">

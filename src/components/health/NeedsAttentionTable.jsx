@@ -105,7 +105,7 @@ const TABLE_HEADERS = [
   { label: 'Account Name',       tip: null },
   { label: 'Location',           tip: 'City and state from the GHL sub-account profile.' },
   { label: 'Email',              tip: 'Contact email on file in GHL.' },
-  { label: 'Last Activity',      tip: 'Days since the newest GHL signal: last contact created, last contact updated, or last won sale. Not a login metric (GHL does not expose logins). Accounts appear here when this exceeds 30 days.' },
+  { label: 'Last Activity',      tip: 'Days since the newest GHL signal: contact created, contact updated, call, or won sale. Not a login metric (GHL does not expose logins). Accounts appear here when this exceeds 30 days.' },
   { label: 'Health Score',       tip: 'Activity-based health score 0–100. Based on days since last detected GHL contact activity. 70+ = Active (≤30 days) · 40–69 = Watch (30–60 days) · <40 = Inactive (60+ days — shown in this table).' },
   { label: 'Recommended Action', tip: 'Rule-based next step generated from the account\'s activity data.' },
   { label: 'Status',             tip: 'Your team\'s outreach status. Tracked per-browser.' },

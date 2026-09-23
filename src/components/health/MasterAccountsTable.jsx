@@ -75,9 +75,10 @@ const COLS = [
   { key: '_estGP',             label: 'Est. GP%',     sortable: false, align: 'right',  tip: 'Estimated gross profit %: (Monthly Revenue − Est. Monthly LC Cost) ÷ Revenue. LC cost is estimated from all-time wallet spend ÷ tenure months. Will be exact once Cliff\'s daily LC sync is live.' },
   { key: 'lastContactCreated', label: 'New Contact',  sortable: true,  align: 'center', tip: 'Days since a contact was last created in this sub-account (GHL contacts, newest dateAdded).\nGreen ≤7d · Amber 8–30d · Red >30d.' },
   { key: 'lastContactUpdate',  label: 'Contact Upd.', sortable: true,  align: 'center', tip: 'Days since any contact record was last changed in this sub-account (GHL contacts, newest dateUpdated — message, note, tag, pipeline move, field edit).\nGreen ≤7d · Amber 8–30d · Red >30d.' },
+  { key: 'lastCallDate',       label: 'Last Call',    sortable: true,  align: 'center', tip: 'Days since the most recent call conversation in this sub-account (GHL conversations, lastMessageType = call).\nGreen ≤7d · Amber 8–30d · Red >30d.' },
   { key: 'lastSaleDate',       label: 'Last Sale',    sortable: true,  align: 'center', tip: 'Days since the most recent opportunity was marked Won in this sub-account\'s GHL pipeline.\n⚑ Flag rule: no won sale in more than 10 days (or none recorded) → recommended action.' },
-  { key: 'lastActivity',       label: 'Last Activity', sortable: true, align: 'center', tip: 'The newest of the three signals to the left (contact created / contact updated / won sale).\nFalls back to LC wallet charge month only if GHL data is not synced yet.\n(Last call will be added once GHL grants the conversations scope.)' },
-  { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Each of the three signals is scored by days since it happened:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nHealth = the highest of the three. No synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.' },
+  { key: 'lastActivity',       label: 'Last Activity', sortable: true, align: 'center', tip: 'The newest of the four signals to the left (contact created / contact updated / call / won sale).\nFalls back to LC wallet charge month only if GHL data is not synced yet.' },
+  { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Each of the four signals is scored by days since it happened:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nHealth = the highest of the four. No synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.' },
 ]
 
 const PAGE_SIZE = 25
@@ -170,7 +171,7 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
             </p>
           </div>
           <InfoTip
-            text={"Full client portfolio.\nBilling columns (Status, Total Rev, Plan, Add-ons, Billed Users) come live from Stripe for matched accounts.\nNew Contact / Contact Upd. / Last Sale are the three GHL signals behind Last Activity and Health, synced on every dashboard load.\n⚑ Flag rule: no won sale in more than 10 days.\nHover any column header's ? for the exact rule behind it."}
+            text={"Full client portfolio.\nBilling columns (Status, Total Rev, Plan, Add-ons, Billed Users) come live from Stripe for matched accounts.\nNew Contact / Contact Upd. / Last Call / Last Sale are the four GHL signals behind Last Activity and Health, synced on every dashboard load.\n⚑ Flag rule: no won sale in more than 10 days.\nHover any column header's ? for the exact rule behind it."}
             position="top-end"
           />
         </div>
@@ -337,6 +338,9 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                   </td>
                   <td className="px-2 py-2 text-center">
                     <ActivityBadge days={daysSince(a.lastContactUpdate)} isAccurate />
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    <ActivityBadge days={daysSince(a.lastCallDate)} isAccurate />
                   </td>
                   <td className="px-2 py-2 text-center">
                     <span className="inline-flex items-center gap-1">

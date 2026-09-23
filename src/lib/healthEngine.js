@@ -4,17 +4,18 @@ const daysSince = (iso) => iso
   ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000))
   : null
 
-// The three GHL signals John wants scored: contact created, contact updated, won sale.
+// The four GHL signals John wants scored: contact created, contact updated, call, won sale.
 // `newest` is the smallest day-count; falls back to account.lastActivity (LC wallet month)
-// only when none of the three exist.
+// only when none of the four exist.
 export function activitySignals(account) {
   const contactCreated = daysSince(account?.lastContactCreated)
   const contactUpdated = daysSince(account?.lastContactUpdate)
+  const call           = daysSince(account?.lastCallDate)
   const sale           = daysSince(account?.lastSaleDate)
-  const ghl = [contactCreated, contactUpdated, sale].filter(d => d !== null)
+  const ghl = [contactCreated, contactUpdated, call, sale].filter(d => d !== null)
   const hasGhl = ghl.length > 0
   const newest = hasGhl ? Math.min(...ghl) : (account?.lastActivity ?? null)
-  return { contactCreated, contactUpdated, sale, newest, hasGhl }
+  return { contactCreated, contactUpdated, call, sale, newest, hasGhl }
 }
 
 // First user on every account is free — only additional seats are billable.
@@ -37,7 +38,7 @@ function activityScore(daysSinceUpdate) {
   return 5
 }
 
-// Score = the best (most recent) of the three GHL signals. Each signal is scored on the same
+// Score = the best (most recent) of the four GHL signals. Each signal is scored on the same
 // day table; the account's score is the highest of them. Contact count / opportunity count are
 // deliberately NOT part of the score (per John). Null everywhere → 50 (neutral).
 export function scoreAccount(account) {
@@ -45,6 +46,7 @@ export function scoreAccount(account) {
   const parts = {
     contactCreated: s.contactCreated !== null ? activityScore(s.contactCreated) : null,
     contactUpdated: s.contactUpdated !== null ? activityScore(s.contactUpdated) : null,
+    call:           s.call           !== null ? activityScore(s.call)           : null,
     sale:           s.sale           !== null ? activityScore(s.sale)           : null,
   }
   const activity = activityScore(s.newest)

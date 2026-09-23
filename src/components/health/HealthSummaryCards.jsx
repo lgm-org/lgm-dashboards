@@ -120,7 +120,7 @@ export default function HealthSummaryCards({
         icon="🟢"
         accentColor={G}
         delay={20}
-        infoText="Accounts where a GHL contact was updated in the last 30 days. Any change to a contact record counts — message sent, note added, pipeline move, tag change. This is the same set you see when you select 'Active — last 30 days' in the filter. ⚠ GHL does not expose user login timestamps via API — this is contact activity, not login tracking."
+        infoText={"Rule: last GHL activity ≤ 30 days.\nLast GHL activity = newest of: contact created, contact updated, call, won sale.\nSame set as the 'Active — last 30 days' filter.\n⚠ GHL does not expose logins — this is account activity, not login tracking."}
       />
 
       <Card
@@ -146,7 +146,7 @@ export default function HealthSummaryCards({
         icon="⚠️"
         accentColor={RED}
         delay={60}
-        infoText={"Rule: days since last GHL activity > 30.\nLast GHL activity = newest of last contact created, last contact updated, last won sale.\nAccounts with no synced GHL data are never counted here.\nClick to jump to the Needs Attention table."}
+        infoText={"Rule: days since last GHL activity > 30.\nLast GHL activity = newest of contact created, contact updated, call, won sale.\nAccounts with no synced GHL data are never counted here.\nClick to jump to the Needs Attention table."}
         clickable={!!onNeedsCheckinClick}
         onClick={onNeedsCheckinClick}
       />
@@ -191,7 +191,7 @@ export default function HealthSummaryCards({
             icon="✅"
             accentColor={G}
             delay={140}
-            infoText={"Rule (Stripe-matched accounts only): health score ≥ 70, which means GHL activity (contact created / updated / won sale) within the last 30 days."}
+            infoText={"Rule (Stripe-matched accounts only): health score ≥ 70, which means GHL activity (contact created / updated / call / won sale) within the last 30 days."}
           />
           <Card
             label="Avg Subscription"

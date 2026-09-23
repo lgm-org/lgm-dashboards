@@ -89,7 +89,7 @@ export default function HealthFilterBar({ filters, setFilters, accountTypes, tot
             <option value="at_risk">Inactive — 60+ days</option>
           </select>
           <InfoTip
-            text="Filter by GHL contact activity recency. Active = any contact updated in the last 30 days. Watch = last update was 30–60 days ago. Inactive = no detected activity in 60+ days. Activity is tracked via GHL's contact dateUpdated field — any change to a contact record (message, note, pipeline move, tag) counts."
+            text={"Filter by GHL activity recency.\nActivity = newest of: contact created, contact updated, call, won sale.\nActive = within 30 days · Watch = 30–60 days · Inactive = 60+ days."}
             position="bottom-end"
           />
         </div>
