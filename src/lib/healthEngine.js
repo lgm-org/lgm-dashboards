@@ -137,8 +137,10 @@ export function recommendAction(account) {
   const s = activitySignals(account)
   if (s.newest === null || s.newest === undefined) return 'No activity data yet — sync GHL activity'
   const band = classify(activityScore(s.newest))
-  if (band === 'at_risk') return `Critical: ${s.newest} days since any GHL activity — schedule a call`
-  if (band === 'watch')   return `Reach out — ${s.newest} days since last GHL activity`
+  // No GHL signals synced → the number comes from the LC wallet month; say so instead of implying GHL data
+  const src = s.hasGhl ? 'GHL activity' : 'LC wallet charge (no GHL activity synced for this account)'
+  if (band === 'at_risk') return `Critical: ${s.newest} days since last ${src} — schedule a call`
+  if (band === 'watch')   return `Reach out — ${s.newest} days since last ${src}`
   if (isFlagged(account)) {
     return s.sale === null
       ? `Active, but no won sale recorded — review pipeline (flag: >${FLAG_NO_SALE_DAYS} days)`

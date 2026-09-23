@@ -241,11 +241,13 @@ export default function AccountModal({ account, onClose }) {
   // Activity source: most-recent of GHL dateUpdated and LC wallet latest month
   const activitySource = account._lastActivitySource || (account.lastLcActivityMonth ? 'lc' : 'ghl')
   const lcDays   = account.lastLcActivityMonth ? account.lastActivity : null
-  const lcSource = account.lastLcActivityMonth ? `LC · ${account.lastLcActivityMonth}` : null
+  const lcSource = account.lastLcActivityMonth
+    ? `Fallback — LC wallet last charge ${account.lastLcActivityMonth} · no GHL activity synced`
+    : null
 
   const activityLabel = activitySource === 'lc'
-    ? `LC Platform Activity (last wallet charge, ${account.lastLcActivityMonth})`
-    : 'GHL Activity (newest of contact created / updated / won sale)'
+    ? `Fallback: LC wallet last charge (${account.lastLcActivityMonth}) — no GHL signals synced`
+    : 'GHL Activity (newest of contact created / updated / call / won sale)'
 
   const daysAgo = (iso) => iso
     ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24)))
@@ -358,10 +360,20 @@ export default function AccountModal({ account, onClose }) {
                 <SubScoreBar label={`Last won sale — ${signalDays.sale !== null ? `${signalDays.sale}d ago` : 'none recorded'}`} score={parts.sale ?? 0} />
               </>
             ) : (
-              <SubScoreBar label={activityLabel} score={parts.activity} />
+              <>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800 leading-snug">
+                  No GHL activity synced for this sub-account (no contact created / updated, call, or won sale returned by GHL).
+                  {activitySource === 'lc'
+                    ? ' Score is using the LC wallet last-charge month as a fallback.'
+                    : ' No LC wallet data either — score is neutral (50).'}
+                </div>
+                <SubScoreBar label={activityLabel} score={parts.activity} />
+              </>
             )}
             <p className="text-[10px] text-brand-muted leading-snug">
-              Each signal: days since → ≤3d 100 · ≤7d 90 · ≤14d 80 · ≤30d 70 · ≤60d 40 · ≤90d 20 · &gt;90d 5. Health score = highest of the four.
+              {signalDays.hasGhl
+                ? 'Each signal: days since → ≤3d 100 · ≤7d 90 · ≤14d 80 · ≤30d 70 · ≤60d 40 · ≤90d 20 · >90d 5. Health score = highest of the four.'
+                : 'Fallback only: days since the LC wallet charge month → same table (≤3d 100 … >90d 5). LC is never used when GHL signals exist.'}
             </p>
             <div className="mt-3 pt-3 border-t border-brand-border">
               <div className="flex items-center justify-between text-[11px] mb-1.5">
@@ -401,13 +413,19 @@ export default function AccountModal({ account, onClose }) {
               </div>
             )}
             <div>
-              <p className="text-[10px] text-brand-muted uppercase tracking-wider">
-                {ghlDays !== null ? 'Last Active in GHL' : 'Last Active'}
+              <p className="text-[10px] text-brand-muted uppercase tracking-wider flex items-center gap-1">
+                {ghlDays !== null ? 'Last Active in GHL' : 'Last Active (fallback)'}
+                <InfoTip
+                  position="bottom-start"
+                  text={ghlDays !== null
+                    ? "Days since the newest of four GHL signals for this sub-account:\n• last contact created\n• last contact updated\n• last call\n• last won sale\nEach is listed under Live Account Metrics below."
+                    : "GHL returned none of the four activity signals for this sub-account, so this falls back to the LC wallet: days since the last month with a wallet charge.\nMost clients don't buy LC usage, so this is only a rough proxy — treat it as 'unknown', not as real inactivity."}
+                />
               </p>
               <p className="num font-medium mt-0.5" style={{ color: days !== null ? actColor : undefined }}>
                 {days !== null ? (days === 0 ? 'Today' : `${days} days ago`) : '—'}
               </p>
-              {actSource && <p className="text-[9px] text-brand-muted/50 mt-0.5 leading-none">{actSource}</p>}
+              {actSource && <p className="text-[9px] text-brand-muted/60 mt-0.5 leading-snug">{actSource}</p>}
             </div>
             <div>
               <p className="text-[10px] text-brand-muted uppercase tracking-wider">Tenure</p>
