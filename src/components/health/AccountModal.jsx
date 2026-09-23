@@ -362,7 +362,11 @@ export default function AccountModal({ account, onClose }) {
             ) : (
               <>
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800 leading-snug">
-                  No GHL activity synced for this sub-account (no contact created / updated, call, or won sale returned by GHL).
+                  {account.ghlDisabled || /not active/i.test(account.ghlSyncNote || '')
+                    ? 'GHL reports this sub-account as not active (paused/inactive in GHL). GHL blocks API access for it, so no activity can be read — check the sub-account status in GHL.'
+                    : account.ghlSyncNote
+                      ? `GHL: ${account.ghlSyncNote}.`
+                      : 'No GHL activity synced for this sub-account yet.'}
                   {activitySource === 'lc'
                     ? ' Score is using the LC wallet last-charge month as a fallback.'
                     : ' No LC wallet data either — score is neutral (50).'}

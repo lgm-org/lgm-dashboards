@@ -50,20 +50,22 @@ async function getCompanyToken() {
   return company.accessToken
 }
 
+// Returns { token, reason } — reason is GHL's own message when no token can be issued
+// (e.g. "Location is not active" for paused sub-accounts, "Location not found" for deleted ones).
 async function getLocationToken(locationId, companyAccessToken) {
   try {
     const cached = await kv.get(`ghl:token:${locationId}`)
     if (cached?.accessToken && Date.now() < cached.expiresAt - 10 * 60 * 1000) {
-      return cached.accessToken
+      return { token: cached.accessToken, reason: null }
     }
     if (cached?.refreshToken) {
       const refreshed = await refreshToken(cached)
       if (refreshed) {
         await kv.set(`ghl:token:${locationId}`, refreshed)
-        return refreshed.accessToken
+        return { token: refreshed.accessToken, reason: null }
       }
     }
-    if (!companyAccessToken) return null
+    if (!companyAccessToken) return { token: null, reason: 'No company token available' }
     const res = await fetch(`${GHL_BASE}/oauth/locationToken`, {
       method: 'POST',
       headers: {
@@ -73,8 +75,11 @@ async function getLocationToken(locationId, companyAccessToken) {
       },
       body: JSON.stringify({ companyId: COMPANY_ID, locationId }),
     })
-    const loc = await res.json()
-    if (!loc?.access_token) return null
+    const loc = await res.json().catch(() => ({}))
+    if (!loc?.access_token) {
+      const msg = Array.isArray(loc?.message) ? loc.message.join('; ') : loc?.message
+      return { token: null, reason: msg || `locationToken HTTP ${res.status}` }
+    }
     const data = {
       accessToken:  loc.access_token,
       refreshToken: loc.refresh_token || '',
@@ -82,8 +87,8 @@ async function getLocationToken(locationId, companyAccessToken) {
       locationId, companyId: COMPANY_ID,
     }
     await kv.set(`ghl:token:${locationId}`, data)
-    return data.accessToken
-  } catch { return null }
+    return { token: data.accessToken, reason: null }
+  } catch (err) { return { token: null, reason: err.message } }
 }
 
 // GHL returns lastMessageDate as epoch ms on conversations; normalize everything to ISO
@@ -197,29 +202,49 @@ export default async function handler(req, res) {
 
   const results = await Promise.allSettled(
     pageBatch.map(async (locationId) => {
-      const token = await getLocationToken(locationId, companyToken)
-      if (!token) return { locationId, skipped: 'no_token' }
+      const { token, reason } = await getLocationToken(locationId, companyToken)
+      if (!token) {
+        // Record GHL's reason so the dashboard can say exactly why there is no activity data.
+        // Only sync_note is written — existing dates are left untouched.
+        await sb.from('ghl_account_stats').upsert({
+          location_id: locationId, sync_note: reason, synced_at: new Date().toISOString(),
+        }, { onConflict: 'location_id' })
+        return { locationId, skipped: 'no_token', reason }
+      }
 
       const { dates, statuses } = await fetchSignals(locationId, token, agencyKey)
       const hasAny = Object.values(dates).some(Boolean)
+      const allOk  = Object.values(statuses).every(tried => tried.some(t => t.status >= 200 && t.status < 300))
 
       let upsertError = null
+      let row = null
       if (hasAny) {
-        const { error } = await sb.from('ghl_account_stats').upsert({
-          location_id:          locationId,
+        row = {
           last_contact_update:  dates.contactUpdate,
           last_contact_created: dates.contactCreated,
           last_call_date:       dates.callDate,
           last_sale_date:       dates.saleDate,
-          synced_at:            new Date().toISOString(),
-        }, { onConflict: 'location_id' })
-        if (error) {
-          upsertError = error.message
-          console.error('[ghl-sync-activity-batch] upsert failed', locationId, error.message)
+          sync_note:            null,
         }
+      } else if (allOk) {
+        // GHL answered every call successfully and there is simply nothing in this sub-account
+        row = { sync_note: 'GHL returned no contacts, calls or won opportunities for this sub-account' }
+      } else {
+        // At least one GHL call failed — keep whatever dates we had, note the failure
+        const failed = Object.entries(statuses)
+          .filter(([, tried]) => !tried.some(t => t.status >= 200 && t.status < 300))
+          .map(([k, tried]) => `${k}: HTTP ${tried[tried.length - 1]?.status}`)
+        row = { sync_note: `GHL request failed — ${failed.join(', ')}` }
+      }
+      const { error } = await sb.from('ghl_account_stats').upsert({
+        location_id: locationId, ...row, synced_at: new Date().toISOString(),
+      }, { onConflict: 'location_id' })
+      if (error) {
+        upsertError = error.message
+        console.error('[ghl-sync-activity-batch] upsert failed', locationId, error.message)
       }
 
-      return { locationId, written: hasAny && !upsertError, dates, statuses, upsertError }
+      return { locationId, written: hasAny && !upsertError, dates, statuses, upsertError, note: row.sync_note }
     })
   )
 

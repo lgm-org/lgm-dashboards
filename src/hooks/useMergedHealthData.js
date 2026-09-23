@@ -309,6 +309,7 @@ export function useMergedHealthData() {
           lastContactCreated:  s.lastContactCreated || null,
           lastCallDate:        s.lastCallDate       || null,
           lastSaleDate:        s.lastSaleDate       || null,
+          ghlSyncNote:         s.syncNote           || null, // GHL's reason when no activity could be read
         }
       })(),
 
