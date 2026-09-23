@@ -168,7 +168,7 @@ export default function UpsellTable({ accounts, hasBilling = false, stripeLoadin
             </p>
           </div>
           <InfoTip
-            text="Upsell qualification rules: (1) Has an active Stripe subscription · (2) Platform activity within last 60 days · (3) Engagement confirmed — at least 1 billed user seat OR any LC wallet spend · (4) Room to grow — fewer than 4 total user seats OR no add-ons yet. Billable users = total users minus 1 (first seat is free). Sorted by estimated additional MRR highest-first. LC wallet spend is the strongest signal — these clients are already paying for platform usage."
+            text={"Upsell rules — ALL must be true:\n1. Stripe plan price > $0 (active paying subscription)\n2. Last GHL activity ≤ 60 days ago\n3. Engaged: ≥1 user seat OR any LC wallet spend\n4. Headroom: fewer than 4 user seats OR no add-ons yet\n\nSuggested add-on (first match wins):\n• LC spend > $100 & no add-ons → LeadFlow AI (+$50)\n• No add-ons → LeadFlow AI (+$50)\n• 1–2 seats → add seats to 3 ($64 each)\n• DM on monthly plan ≥ $200 → annual plan\n• Otherwise → seat expansion / plan upgrade (+20% of plan)\n\nBilled users = total users − 1 (first seat free). Sorted by estimated extra MRR."}
             position="top-end"
           />
         </div>

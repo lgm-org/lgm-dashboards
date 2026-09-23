@@ -243,7 +243,7 @@ export default function AccountModal({ account, onClose }) {
 
   const activityLabel = activitySource === 'lc'
     ? `LC Platform Activity (last wallet charge, ${account.lastLcActivityMonth})`
-    : 'GHL Sub-Account Activity (last record update)'
+    : 'GHL Activity (newest of contact created / updated / won sale)'
 
   const daysAgo = (iso) => iso
     ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24)))
@@ -324,8 +324,8 @@ export default function AccountModal({ account, onClose }) {
               <div className="absolute top-2 right-2">
                 <InfoTip
                   text={isEnhanced
-                    ? `Enhanced score: Activity 30% (most recent of GHL sub-account update or LC wallet charge) · CRM Contacts 40% (how much data is in their system) · Pipeline Opportunities 30% (deals being tracked). Higher = more active client.`
-                    : `Activity score: 100 = active today, 90 = last 7 days, 75 = last 2 weeks, 60 = last 30 days, 40 = last 60 days, 20 = last 90 days, 5 = 90+ days. Uses most recent signal: GHL sub-account last updated or LC wallet charge (whichever is more recent). Enhanced score (contacts + pipeline) loads automatically below.`}
+                    ? "Enhanced score = 0.30 × Activity + 0.40 × Contacts + 0.30 × Opportunities\n\nActivity (days since last GHL activity): ≤3d=100 · ≤7d=90 · ≤14d=80 · ≤30d=70 · ≤60d=40 · ≤90d=20 · >90d=5\nContacts (total in GHL): <100 → 10–30 · <500 → 30–50 · <2,000 → 50–70 · <10,000 → 70–90 · 10,000+ → 90–100\nOpportunities (total in pipeline): 0 → 5 · <10 → 10–30 · <50 → 30–55 · <200 → 55–75 · <1,000 → 75–90 · 1,000+ → 90–100"
+                    : "Score = days since last GHL activity (newest of contact created / updated / won sale):\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.\nThe enhanced score (adds contacts + pipeline size) loads below once live GHL data arrives."}
                   position="top-end"
                 />
               </div>
@@ -361,6 +361,11 @@ export default function AccountModal({ account, onClose }) {
             ) : (
               <SubScoreBar label={activityLabel} score={parts.activity} />
             )}
+            <p className="text-[10px] text-brand-muted leading-snug">
+              {isEnhanced
+                ? 'Formula: 0.30 × Activity + 0.40 × Contacts + 0.30 × Opportunities'
+                : 'Formula: days since last GHL activity → ≤3d 100 · ≤7d 90 · ≤14d 80 · ≤30d 70 · ≤60d 40 · ≤90d 20 · >90d 5'}
+            </p>
             <div className="mt-3 pt-3 border-t border-brand-border">
               <div className="flex items-center justify-between text-[11px] mb-1.5">
                 <span className="text-brand-muted font-semibold">Composite</span>

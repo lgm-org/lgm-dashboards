@@ -276,8 +276,8 @@ export function useMergedHealthData() {
       ghlSnapshotId:    g.ghlSnapshotId,
 
       // ── Health scoring inputs ──────────────────────────────
-      // Prefer Stripe start date (actual payment start) over GHL create date
-      stripeStartDate:  billing?.stripeStartDate || g.ghlDateAdded,
+      // Stripe only (per John) — GHL create date is kept separately as ghlDateAdded
+      stripeStartDate:  billing?.stripeStartDate || null,
       // lastActivity: use GHL contact-level activity (from Supabase cache written by AccountModal opens)
       // as the primary signal — it's the native GHL "contact last activity" field.
       // Fall back to LC wallet billing month when the cache hasn't been populated for this account yet.

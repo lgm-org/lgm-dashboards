@@ -424,8 +424,8 @@ export default function HealthDashboard({ filters, setFilters }) {
       const cutoff = format(subDays(today, days), 'yyyy-MM-dd')
       // Denominator: Stripe-matched accounts whose billing start falls within the window
       const cohort = filteredAccounts.filter(a => {
-        const start = a.stripeStartDate || a.ghlDateAdded || ''
-        return a._stripeBound && start >= cutoff
+        const start = (a.stripeStartDate || '').slice(0, 10)
+        return a._stripeBound && start && start >= cutoff
       })
       // Numerator: cohort members who have since cancelled (canceledAt set in Stripe)
       const churnedAccounts = cohort.filter(a => !!a.canceledAt)

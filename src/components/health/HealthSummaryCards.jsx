@@ -146,7 +146,7 @@ export default function HealthSummaryCards({
         icon="⚠️"
         accentColor={RED}
         delay={60}
-        infoText="Accounts with no detected platform signal in over 30 days — LC wallet charges or GHL sub-account settings update. Not a user-login metric. Click to jump to the Needs Attention table."
+        infoText={"Rule: days since last GHL activity > 30.\nLast GHL activity = newest of last contact created, last contact updated, last won sale.\nAccounts with no synced GHL data are never counted here.\nClick to jump to the Needs Attention table."}
         clickable={!!onNeedsCheckinClick}
         onClick={onNeedsCheckinClick}
       />
@@ -159,7 +159,7 @@ export default function HealthSummaryCards({
         suffix="/100"
         accentColor={avgScore >= 70 ? G : avgScore >= 40 ? AMB : RED}
         delay={80}
-        infoText="Average health score across all accounts (0–100). Based on real LC platform activity recency (falls back to GHL settings date when no LC data). Enhanced score per account (activity 30% · CRM contacts 40% · pipeline 30%) appears when you open each account's detail modal."
+        infoText={"Average of every account's health score (0–100).\nScore = days since last GHL activity:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive."}
       />
 
       <Card
@@ -182,7 +182,7 @@ export default function HealthSummaryCards({
             icon="🚨"
             accentColor={RED}
             delay={120}
-            infoText="Accounts inactive in GHL for 30+ days with an active Stripe subscription. These are churn risks — flag for a check-in call."
+            infoText={"Rule (Stripe-matched accounts only): health band is Inactive (score < 40 = no GHL activity in 60+ days) OR Stripe status is past_due.\nRevenue at risk = sum of their monthly Stripe revenue."}
           />
           <Card
             label="Healthy Accounts"
@@ -191,7 +191,7 @@ export default function HealthSummaryCards({
             icon="✅"
             accentColor={G}
             delay={140}
-            infoText="Accounts scoring 70+ on the activity-based health score. Active in GHL recently and in good standing."
+            infoText={"Rule (Stripe-matched accounts only): health score ≥ 70, which means GHL activity (contact created / updated / won sale) within the last 30 days."}
           />
           <Card
             label="Avg Subscription"

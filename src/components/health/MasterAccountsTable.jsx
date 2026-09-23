@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import InfoTip from './InfoTip'
 import { useRole } from '../../contexts/RoleContext'
-import { billableUsers } from '../../lib/healthEngine'
+import { billableUsers, isFlagged } from '../../lib/healthEngine'
 
 const G   = '#8CC63F'
 const AMB = '#EAB308'
@@ -67,10 +67,11 @@ const COLS = [
   { key: 'planPrice',          label: 'Plan',         sortable: true,  align: 'right',  tip: 'Base monthly plan price from Stripe. "yr" badge = annual plan (billed yearly).' },
   { key: 'addOns',             label: 'Add-ons',      sortable: false, align: 'right',  tip: 'Monthly add-on charges (e.g. LeadFlow AI). $0 = Stripe-matched with no active add-ons — upsell opportunity.' },
   { key: 'lcWalletCharges',    label: 'LC Wallet',    sortable: true,  align: 'right',  tip: 'Cumulative LC platform spend from Cliff\'s data: SMS, AI calls, email, voice. All-time total — not monthly.' },
-  { key: 'users',              label: 'Billed Users', sortable: true,  align: 'center', tip: 'Billable user seats (total users minus 1 free admin seat). First user on every account is free.' },
+  { key: 'users',              label: 'Billed Users', sortable: true,  align: 'center', tip: 'Rule: Billed Users = Total Users − 1.\nThe first seat on every account is free; every additional seat is billable at $64/mo.\nTotal users is the seat quantity on the Stripe subscription.' },
   { key: '_estGP',             label: 'Est. GP%',     sortable: false, align: 'right',  tip: 'Estimated gross profit %: (Monthly Revenue − Est. Monthly LC Cost) ÷ Revenue. LC cost is estimated from all-time wallet spend ÷ tenure months. Will be exact once Cliff\'s daily LC sync is live.' },
-  { key: 'lastActivity',       label: 'Last Update',  sortable: true,  align: 'center', tip: 'Days since last contact activity in GHL (native field — most recently updated contact). Once an account modal is opened, this switches to the accurate GHL contact activity. Before then: falls back to LC wallet charge month-end. Green ≤ 7d · Amber 8–30d · Red > 30d. Click any row to see real-time contact activity date.' },
-  { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Health score 0–100 based on GHL activity recency. 70+ = Healthy · 40–69 = Watch · <40 = At-Risk. Click any row to see the full breakdown.' },
+  { key: 'lastActivity',       label: 'Last Activity', sortable: true, align: 'center', tip: 'Days since the newest of three GHL signals:\n• last contact created\n• last contact updated\n• last won sale\n(last call will be added once GHL grants the conversations scope)\nFalls back to LC wallet charge month only if GHL data is not synced yet.\nGreen ≤7d · Amber 8–30d · Red >30d.\n⚑ = over 10 days without activity (flag rule).' },
+  { key: 'lastSaleDate',       label: 'Last Sale',    sortable: true,  align: 'center', tip: 'Date the most recent opportunity was marked Won in this sub-account\'s GHL pipeline (lastStatusChangeAt on the newest won opportunity).' },
+  { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Score = days since last GHL activity:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.\nClick a row for the full breakdown.' },
 ]
 
 const PAGE_SIZE = 25
@@ -87,6 +88,7 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
 
   const stripeCount  = useMemo(() => accounts.filter(a => a._stripeBound).length, [accounts])
   const lcCount      = useMemo(() => accounts.filter(a => (a.lcWalletCharges ?? 0) > 0).length, [accounts])
+  const flaggedCount = useMemo(() => accounts.filter(isFlagged).length, [accounts])
   const visibleCols  = isAdmin ? COLS : COLS.filter(c => !BILLING_COLS.has(c.key))
 
   function estGP(account) {
@@ -157,11 +159,12 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
               {accounts.length} sub-accounts
               {isAdmin && stripeCount > 0 && <> · <span className="font-medium" style={{ color: G }}>{stripeCount} Stripe</span> · {accounts.length - stripeCount} unmatched</>}
               {isAdmin && lcCount > 0 && <> · <span className="font-medium" style={{ color: '#7c3aed' }}>{lcCount} with LC spend</span></>}
+              {flaggedCount > 0 && <> · <span className="font-medium" style={{ color: AMB }}>⚑ {flaggedCount} flagged (10+ days)</span></>}
               {' '}· click a column to sort · click a row to open details
             </p>
           </div>
           <InfoTip
-            text="Full client portfolio. Billing columns (Type, Total Rev, Plan, Add-ons, Users) pull live from Stripe for matched accounts. LC Wallet = cumulative platform spend from Cliff's data. Email, location, transactions, GP, and multi-location are in each account's detail modal."
+            text={"Full client portfolio.\nBilling columns (Status, Total Rev, Plan, Add-ons, Billed Users) come live from Stripe for matched accounts.\nLast Activity / Last Sale / Health come from GHL (contacts + won opportunities), synced on every dashboard load.\n⚑ Flag rule: over 10 days without GHL activity.\nHover any column header's ? for the exact rule behind it."}
             position="top-end"
           />
         </div>
@@ -322,12 +325,27 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                     </td>
                   )}
 
-                  {/* Last Activity — uses GHL contact activity from cache when available */}
+                  {/* Last Activity — newest of GHL contact created / updated / won sale */}
                   <td className="px-2 py-2 text-center">
-                    <ActivityBadge
-                      days={a.lastActivity}
-                      isAccurate={a._lastActivitySource === 'ghl_contact'}
-                    />
+                    <span className="inline-flex items-center gap-1">
+                      <ActivityBadge
+                        days={a.lastActivity}
+                        isAccurate={a._lastActivitySource === 'ghl_contact'}
+                      />
+                      {isFlagged(a) && (
+                        <span className="text-[11px] leading-none" style={{ color: AMB }}
+                          title="Flag rule: over 10 days without GHL activity">⚑</span>
+                      )}
+                    </span>
+                  </td>
+
+                  {/* Last Sale — newest won opportunity in GHL */}
+                  <td className="px-2 py-2 text-center">
+                    {a.lastSaleDate
+                      ? <span className="num text-[10px] text-brand-text whitespace-nowrap">
+                          {new Date(a.lastSaleDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })}
+                        </span>
+                      : <span className="text-brand-border text-[10px]">—</span>}
                   </td>
 
                   {/* Health Score */}

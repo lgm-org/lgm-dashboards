@@ -82,7 +82,7 @@ export default function DmAgentBreakdown({ breakdown, avgHealthDm, avgHealthAgen
           <p className="text-brand-muted text-[11px] mt-0.5">Revenue distribution by account type</p>
         </div>
         <InfoTip
-          text="Splits your portfolio into two account types. DM (Digital Marketing) = traditional ad/marketing clients. Agent (Conversational AI) = clients using the AI chatbot/agent product. Revenue, count, and average health score are shown separately for each type so you can see which segment is healthier and more profitable."
+          text={"Rule: Agent = sub-account is listed in the DM Footprint (Supabase dm_agent_map, synced hourly by n8n from the GHL contact custom field that assigns agents to a DM). DM = every other sub-account.\nRevenue and counts include Stripe-matched accounts only. Avg health = mean health score of each group."}
           position="top-end"
         />
       </div>

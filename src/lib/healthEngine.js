@@ -80,6 +80,13 @@ export function isAtRisk(account) {
   return Number(days) > 30
 }
 
+// Flag rule (John): no GHL activity for more than 10 days
+export function isFlagged(account) {
+  const days = account.lastActivity
+  if (days === null || days === undefined) return false
+  return Number(days) > 10
+}
+
 // "Needs attention" — account hasn't been touched in 14+ days (watch zone)
 export function isWatch(account) {
   const days = account.lastActivity

@@ -66,7 +66,7 @@ export default function HealthFilterBar({ filters, setFilters, accountTypes, tot
             <option value="Agent">Agent Only{agentCount > 0 ? ` (${agentCount})` : ''}</option>
           </select>
           <InfoTip
-            text="Filter by account type using DM Footprint data. Agent = accounts listed in the DM Footprint (district manager-managed AI agent clients). DM = all other accounts (Digital Marketing clients). Counts shown next to each option confirm data is loaded."
+            text={"Rule: Agent = the sub-account appears in the DM Footprint (Supabase table dm_agent_map, synced hourly by n8n from the GHL contact custom field that assigns agents to a DM). DM = every other sub-account.\nThis is the same source that populates the DM Footprint tab. Counts next to each option confirm the map is loaded."}
             position="bottom-end"
           />
         </div>

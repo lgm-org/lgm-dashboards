@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
+import InfoTip from './InfoTip'
 
 const G   = '#8CC63F'
 const AMB = '#EAB308'
@@ -178,6 +179,10 @@ export default function ChurnMetrics({ metrics = [], scheduledToCancel = [], str
           <h2 className="text-sm font-semibold text-red-700 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
             Cohort Churn Rate
+            <InfoTip
+              position="bottom-start"
+              text={"Rule per window (30 / 60 / 90 days):\nCohort = Stripe-matched accounts whose Stripe subscription start date falls inside the window.\nChurned = cohort members whose Stripe canceled_at is set.\nRate = churned ÷ cohort.\nMRR lost = sum of their Stripe plan prices.\n\nStarted and Cancelled dates come from Stripe only — GHL dates are not used here.\n'At risk' = Stripe cancel_at_period_end set but not yet cancelled."}
+            />
             {scheduledToCancel.length > 0 && (
               <span className="ml-1 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-[9px] font-bold text-white"
                 style={{ background: AMB }}>
