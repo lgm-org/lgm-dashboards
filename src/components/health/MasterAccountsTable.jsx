@@ -23,6 +23,10 @@ function HealthPill({ score, band }) {
   )
 }
 
+const daysSince = (iso) => iso
+  ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000))
+  : null
+
 function ActivityBadge({ days, isAccurate }) {
   if (days === null || days === undefined)
     return <span className="text-brand-muted text-[10px]">—</span>
@@ -69,9 +73,11 @@ const COLS = [
   { key: 'lcWalletCharges',    label: 'LC Wallet',    sortable: true,  align: 'right',  tip: 'Cumulative LC platform spend from Cliff\'s data: SMS, AI calls, email, voice. All-time total — not monthly.' },
   { key: 'users',              label: 'Billed Users', sortable: true,  align: 'center', tip: 'Rule: Billed Users = Total Users − 1.\nThe first seat on every account is free; every additional seat is billable at $64/mo.\nTotal users is the seat quantity on the Stripe subscription.' },
   { key: '_estGP',             label: 'Est. GP%',     sortable: false, align: 'right',  tip: 'Estimated gross profit %: (Monthly Revenue − Est. Monthly LC Cost) ÷ Revenue. LC cost is estimated from all-time wallet spend ÷ tenure months. Will be exact once Cliff\'s daily LC sync is live.' },
-  { key: 'lastActivity',       label: 'Last Activity', sortable: true, align: 'center', tip: 'Days since the newest of three GHL signals:\n• last contact created\n• last contact updated\n• last won sale\n(last call will be added once GHL grants the conversations scope)\nFalls back to LC wallet charge month only if GHL data is not synced yet.\nGreen ≤7d · Amber 8–30d · Red >30d.\n⚑ = over 10 days without activity (flag rule).' },
-  { key: 'lastSaleDate',       label: 'Last Sale',    sortable: true,  align: 'center', tip: 'Date the most recent opportunity was marked Won in this sub-account\'s GHL pipeline (lastStatusChangeAt on the newest won opportunity).' },
-  { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Score = days since last GHL activity:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.\nClick a row for the full breakdown.' },
+  { key: 'lastContactCreated', label: 'New Contact',  sortable: true,  align: 'center', tip: 'Days since a contact was last created in this sub-account (GHL contacts, newest dateAdded).\nGreen ≤7d · Amber 8–30d · Red >30d.' },
+  { key: 'lastContactUpdate',  label: 'Contact Upd.', sortable: true,  align: 'center', tip: 'Days since any contact record was last changed in this sub-account (GHL contacts, newest dateUpdated — message, note, tag, pipeline move, field edit).\nGreen ≤7d · Amber 8–30d · Red >30d.' },
+  { key: 'lastSaleDate',       label: 'Last Sale',    sortable: true,  align: 'center', tip: 'Days since the most recent opportunity was marked Won in this sub-account\'s GHL pipeline.\n⚑ Flag rule: no won sale in more than 10 days (or none recorded) → recommended action.' },
+  { key: 'lastActivity',       label: 'Last Activity', sortable: true, align: 'center', tip: 'The newest of the three signals to the left (contact created / contact updated / won sale).\nFalls back to LC wallet charge month only if GHL data is not synced yet.\n(Last call will be added once GHL grants the conversations scope.)' },
+  { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Each of the three signals is scored by days since it happened:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nHealth = the highest of the three. No synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.' },
 ]
 
 const PAGE_SIZE = 25
@@ -159,12 +165,12 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
               {accounts.length} sub-accounts
               {isAdmin && stripeCount > 0 && <> · <span className="font-medium" style={{ color: G }}>{stripeCount} Stripe</span> · {accounts.length - stripeCount} unmatched</>}
               {isAdmin && lcCount > 0 && <> · <span className="font-medium" style={{ color: '#7c3aed' }}>{lcCount} with LC spend</span></>}
-              {flaggedCount > 0 && <> · <span className="font-medium" style={{ color: AMB }}>⚑ {flaggedCount} flagged (10+ days)</span></>}
+              {flaggedCount > 0 && <> · <span className="font-medium" style={{ color: AMB }}>⚑ {flaggedCount} flagged (no sale 10+ days)</span></>}
               {' '}· click a column to sort · click a row to open details
             </p>
           </div>
           <InfoTip
-            text={"Full client portfolio.\nBilling columns (Status, Total Rev, Plan, Add-ons, Billed Users) come live from Stripe for matched accounts.\nLast Activity / Last Sale / Health come from GHL (contacts + won opportunities), synced on every dashboard load.\n⚑ Flag rule: over 10 days without GHL activity.\nHover any column header's ? for the exact rule behind it."}
+            text={"Full client portfolio.\nBilling columns (Status, Total Rev, Plan, Add-ons, Billed Users) come live from Stripe for matched accounts.\nNew Contact / Contact Upd. / Last Sale are the three GHL signals behind Last Activity and Health, synced on every dashboard load.\n⚑ Flag rule: no won sale in more than 10 days.\nHover any column header's ? for the exact rule behind it."}
             position="top-end"
           />
         </div>
@@ -325,27 +331,29 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                     </td>
                   )}
 
-                  {/* Last Activity — newest of GHL contact created / updated / won sale */}
+                  {/* The three GHL signals, broken out (per John) */}
+                  <td className="px-2 py-2 text-center">
+                    <ActivityBadge days={daysSince(a.lastContactCreated)} isAccurate />
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    <ActivityBadge days={daysSince(a.lastContactUpdate)} isAccurate />
+                  </td>
                   <td className="px-2 py-2 text-center">
                     <span className="inline-flex items-center gap-1">
-                      <ActivityBadge
-                        days={a.lastActivity}
-                        isAccurate={a._lastActivitySource === 'ghl_contact'}
-                      />
+                      <ActivityBadge days={daysSince(a.lastSaleDate)} isAccurate />
                       {isFlagged(a) && (
                         <span className="text-[11px] leading-none" style={{ color: AMB }}
-                          title="Flag rule: over 10 days without GHL activity">⚑</span>
+                          title="Flag rule: no won sale in more than 10 days">⚑</span>
                       )}
                     </span>
                   </td>
 
-                  {/* Last Sale — newest won opportunity in GHL */}
+                  {/* Last Activity — newest of the three */}
                   <td className="px-2 py-2 text-center">
-                    {a.lastSaleDate
-                      ? <span className="num text-[10px] text-brand-text whitespace-nowrap">
-                          {new Date(a.lastSaleDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })}
-                        </span>
-                      : <span className="text-brand-border text-[10px]">—</span>}
+                    <ActivityBadge
+                      days={a.lastActivity}
+                      isAccurate={a._lastActivitySource === 'ghl_contact'}
+                    />
                   </td>
 
                   {/* Health Score */}

@@ -1,4 +1,21 @@
-import { HEALTH_BANDS } from './healthConfig'
+import { HEALTH_BANDS, FLAG_NO_SALE_DAYS } from './healthConfig'
+
+const daysSince = (iso) => iso
+  ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000))
+  : null
+
+// The three GHL signals John wants scored: contact created, contact updated, won sale.
+// `newest` is the smallest day-count; falls back to account.lastActivity (LC wallet month)
+// only when none of the three exist.
+export function activitySignals(account) {
+  const contactCreated = daysSince(account?.lastContactCreated)
+  const contactUpdated = daysSince(account?.lastContactUpdate)
+  const sale           = daysSince(account?.lastSaleDate)
+  const ghl = [contactCreated, contactUpdated, sale].filter(d => d !== null)
+  const hasGhl = ghl.length > 0
+  const newest = hasGhl ? Math.min(...ghl) : (account?.lastActivity ?? null)
+  return { contactCreated, contactUpdated, sale, newest, hasGhl }
+}
 
 // First user on every account is free — only additional seats are billable.
 export function billableUsers(account) {
@@ -20,50 +37,21 @@ function activityScore(daysSinceUpdate) {
   return 5
 }
 
+// Score = the best (most recent) of the three GHL signals. Each signal is scored on the same
+// day table; the account's score is the highest of them. Contact count / opportunity count are
+// deliberately NOT part of the score (per John). Null everywhere → 50 (neutral).
 export function scoreAccount(account) {
-  // Use only lastActivity — real contact activity from GHL (via Supabase cache or LC wallet proxy).
-  // ghlDaysSinceUpdate (sub-account settings update) is intentionally NOT used here:
-  // settings rarely change so it produces false at-risk classifications for active clients.
-  // Null lastActivity → score 50 (Watch/neutral) until real data is available.
-  const activity = activityScore(account.lastActivity)
+  const s = activitySignals(account)
+  const parts = {
+    contactCreated: s.contactCreated !== null ? activityScore(s.contactCreated) : null,
+    contactUpdated: s.contactUpdated !== null ? activityScore(s.contactUpdated) : null,
+    sale:           s.sale           !== null ? activityScore(s.sale)           : null,
+  }
+  const activity = activityScore(s.newest)
   return {
     score: Math.min(100, Math.max(0, activity)),
-    parts: { activity },
-  }
-}
-
-// Enhanced score used in AccountModal once live metrics load.
-// Weights: activity 30% · contacts 40% · opportunities 30% (tenure + team members removed per John)
-function contactScore(n) {
-  if (!n || n <= 0)      return 0
-  if (n < 100)           return 10 + (n / 100) * 20           // 10–30
-  if (n < 500)           return 30 + ((n - 100) / 400) * 20   // 30–50
-  if (n < 2000)          return 50 + ((n - 500) / 1500) * 20  // 50–70
-  if (n < 10000)         return 70 + ((n - 2000) / 8000) * 20 // 70–90
-  return 90 + Math.min(10, ((n - 10000) / 40000) * 10)        // 90–100
-}
-
-function opportunityScore(n) {
-  if (!n || n <= 0)   return 5
-  if (n < 10)         return 10 + (n / 10) * 20           // 10–30
-  if (n < 50)         return 30 + ((n - 10) / 40) * 25    // 30–55
-  if (n < 200)        return 55 + ((n - 50) / 150) * 20   // 55–75
-  if (n < 1000)       return 75 + ((n - 200) / 800) * 15  // 75–90
-  return Math.min(100, 90 + ((n - 1000) / 4000) * 10)     // 90–100
-}
-
-export function enhancedScoreAccount(account, liveMetrics) {
-  const activity = activityScore(account.lastActivity)
-  const contacts = contactScore(liveMetrics?.contacts)
-  const opps     = opportunityScore(liveMetrics?.opportunities)
-  const score    = Math.round(
-    activity * 0.30 +
-    contacts * 0.40 +
-    opps     * 0.30
-  )
-  return {
-    score: Math.min(100, Math.max(0, score)),
-    parts: { activity, contacts, opps },
+    parts: { ...parts, activity },
+    signalDays: s,
   }
 }
 
@@ -80,11 +68,12 @@ export function isAtRisk(account) {
   return Number(days) > 30
 }
 
-// Flag rule (John): no GHL activity for more than 10 days
+// Flag rule (John): no won sale for more than FLAG_NO_SALE_DAYS. Only evaluated once the
+// account has synced GHL data (otherwise every unsynced account would be flagged).
 export function isFlagged(account) {
-  const days = account.lastActivity
-  if (days === null || days === undefined) return false
-  return Number(days) > 10
+  const s = activitySignals(account)
+  if (!s.hasGhl) return false
+  return s.sale === null || s.sale > FLAG_NO_SALE_DAYS
 }
 
 // "Needs attention" — account hasn't been touched in 14+ days (watch zone)
@@ -140,15 +129,20 @@ export function suggestAddon(account) {
   return { label: 'Seat expansion or plan upgrade', estExtra: Math.round(rev * 0.20) }
 }
 
+// Derived from the same score bands as the health pill so the two can never disagree,
+// plus the no-sale flag rule on top.
 export function recommendAction(account) {
-  const days = account.lastActivity
-  if (days === null || days === undefined) return 'Sync activity data — open account to load'
-  const d = Number(days)
-  if (d <= 3)   return 'Active — no action needed'
-  if (d <= 14)  return 'Check in — account activity slowing'
-  if (d <= 30)  return 'Reach out — 2+ weeks since last GHL activity'
-  if (d <= 60)  return 'Urgent: 30+ days inactive — schedule a call'
-  return 'Critical: 60+ days since any GHL activity'
+  const s = activitySignals(account)
+  if (s.newest === null || s.newest === undefined) return 'No activity data yet — sync GHL activity'
+  const band = classify(activityScore(s.newest))
+  if (band === 'at_risk') return `Critical: ${s.newest} days since any GHL activity — schedule a call`
+  if (band === 'watch')   return `Reach out — ${s.newest} days since last GHL activity`
+  if (isFlagged(account)) {
+    return s.sale === null
+      ? `Active, but no won sale recorded — review pipeline (flag: >${FLAG_NO_SALE_DAYS} days)`
+      : `Active, but last sale was ${s.sale} days ago — review pipeline (flag: >${FLAG_NO_SALE_DAYS} days)`
+  }
+  return 'Active — no action needed'
 }
 
 // Summaries used by dashboard KPIs

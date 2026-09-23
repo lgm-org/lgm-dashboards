@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { differenceInDays, parseISO, isValid, format } from 'date-fns'
-import { recommendAction, enhancedScoreAccount, classify, billableUsers } from '../../lib/healthEngine'
+import { recommendAction, scoreAccount, classify, billableUsers, isFlagged } from '../../lib/healthEngine'
 import GHLInfoPanel from './GHLInfoPanel'
 import InfoTip from './InfoTip'
 import { useRole } from '../../contexts/RoleContext'
@@ -210,17 +210,18 @@ export default function AccountModal({ account, onClose }) {
 
   if (!account) return null
 
-  // Use enhanced score when live metrics are loaded, fall back to basic score
-  const baseHealth = account._health || { score: 0, parts: {}, band: 'at_risk' }
-  const enhanced   = (!liveMetricsLoading && liveMetrics?.oauthConnected)
-    ? enhancedScoreAccount(account, liveMetrics)
-    : null
-  const displayScore = enhanced ?? baseHealth
-  const { score, parts } = displayScore
-  const band   = classify(score)
-  const color  = bandColor(band)
-  const action = recommendAction(account)
-  const isEnhanced = !!enhanced
+  // Re-score with the live GHL signals when the modal fetch has returned; same formula as the table.
+  const liveAccount = {
+    ...account,
+    lastContactUpdate:  liveMetrics?.lastContactUpdate  ?? account.lastContactUpdate  ?? null,
+    lastContactCreated: liveMetrics?.lastContactCreated ?? account.lastContactCreated ?? null,
+    lastSaleDate:       liveMetrics?.lastSaleDate       ?? account.lastSaleDate       ?? null,
+  }
+  const { score, parts, signalDays } = scoreAccount(liveAccount)
+  const band    = classify(score)
+  const color   = bandColor(band)
+  const action  = recommendAction(liveAccount)
+  const flagged = isFlagged(liveAccount)
 
   const dateAdded = account.ghlDateAdded
   let tenureDays = null, joinFormatted = null
@@ -323,16 +324,12 @@ export default function AccountModal({ account, onClose }) {
             <div className="bg-brand-bg rounded-xl p-3 border border-brand-border text-center relative">
               <div className="absolute top-2 right-2">
                 <InfoTip
-                  text={isEnhanced
-                    ? "Enhanced score = 0.30 × Activity + 0.40 × Contacts + 0.30 × Opportunities\n\nActivity (days since last GHL activity): ≤3d=100 · ≤7d=90 · ≤14d=80 · ≤30d=70 · ≤60d=40 · ≤90d=20 · >90d=5\nContacts (total in GHL): <100 → 10–30 · <500 → 30–50 · <2,000 → 50–70 · <10,000 → 70–90 · 10,000+ → 90–100\nOpportunities (total in pipeline): 0 → 5 · <10 → 10–30 · <50 → 30–55 · <200 → 55–75 · <1,000 → 75–90 · 1,000+ → 90–100"
-                    : "Score = days since last GHL activity (newest of contact created / updated / won sale):\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.\nThe enhanced score (adds contacts + pipeline size) loads below once live GHL data arrives."}
+                  text={"Three GHL signals are each scored by days since they last happened:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\n• Last contact created\n• Last contact updated\n• Last won sale\nHealth score = the highest of the three (i.e. the most recent signal).\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.\nContact count and opportunity count are NOT part of the score."}
                   position="top-end"
                 />
               </div>
               <p className="num text-base font-bold" style={{ color }}>{score}/100</p>
-              <p className="text-[10px] text-brand-muted uppercase tracking-wider mt-0.5">
-                {isEnhanced ? 'Health Score ✦' : 'Health Score'}
-              </p>
+              <p className="text-[10px] text-brand-muted uppercase tracking-wider mt-0.5">Health Score</p>
             </div>
             <div className="bg-brand-bg rounded-xl p-3 border border-brand-border text-center">
               <p className="num text-base font-bold text-brand-text">
@@ -346,25 +343,23 @@ export default function AccountModal({ account, onClose }) {
           <div className="rounded-xl border border-brand-border p-4 space-y-3">
             <div className="flex items-center justify-between mb-1">
               <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Score Breakdown</p>
-              {isEnhanced && (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#8CC63F18', color: '#3a6b10' }}>
-                  ENHANCED
+              {flagged && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#EAB30818', color: '#92400e' }}>
+                  ⚑ NO SALE 10+ DAYS
                 </span>
               )}
             </div>
-            {isEnhanced ? (
+            {signalDays.hasGhl ? (
               <>
-                <SubScoreBar label={`${activityLabel} — 30% of score`} score={parts.activity} />
-                <SubScoreBar label="CRM Contacts in their system — 40% of score" score={parts.contacts} />
-                <SubScoreBar label="Opportunities / pipeline deals — 30% of score" score={parts.opps} />
+                <SubScoreBar label={`Last contact created — ${signalDays.contactCreated !== null ? `${signalDays.contactCreated}d ago` : 'none'}`} score={parts.contactCreated ?? 0} />
+                <SubScoreBar label={`Last contact updated — ${signalDays.contactUpdated !== null ? `${signalDays.contactUpdated}d ago` : 'none'}`} score={parts.contactUpdated ?? 0} />
+                <SubScoreBar label={`Last won sale — ${signalDays.sale !== null ? `${signalDays.sale}d ago` : 'none recorded'}`} score={parts.sale ?? 0} />
               </>
             ) : (
               <SubScoreBar label={activityLabel} score={parts.activity} />
             )}
             <p className="text-[10px] text-brand-muted leading-snug">
-              {isEnhanced
-                ? 'Formula: 0.30 × Activity + 0.40 × Contacts + 0.30 × Opportunities'
-                : 'Formula: days since last GHL activity → ≤3d 100 · ≤7d 90 · ≤14d 80 · ≤30d 70 · ≤60d 40 · ≤90d 20 · >90d 5'}
+              Each signal: days since → ≤3d 100 · ≤7d 90 · ≤14d 80 · ≤30d 70 · ≤60d 40 · ≤90d 20 · &gt;90d 5. Health score = highest of the three.
             </p>
             <div className="mt-3 pt-3 border-t border-brand-border">
               <div className="flex items-center justify-between text-[11px] mb-1.5">
@@ -811,21 +806,11 @@ export default function AccountModal({ account, onClose }) {
                 OAuth token not yet available for this location. Once the marketplace app is installed for this account, metrics will appear here automatically.
               </div>
             ) : liveMetrics ? (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {[
-                  { label: 'Team Members',   value: liveMetrics.users,         icon: '👤' },
-                  { label: 'Contacts',       value: liveMetrics.contacts,      icon: '📋' },
-                  { label: 'Opportunities',  value: liveMetrics.opportunities,  icon: '🎯' },
-                  { label: 'Conversations',  value: liveMetrics.conversations,  icon: '💬' },
-                ].map(({ label, value, icon }) => (
-                  <div key={label} className="bg-brand-bg rounded-xl border border-brand-border p-3 text-center">
-                    <div className="text-base mb-0.5">{icon}</div>
-                    <p className="num text-sm font-bold text-brand-text">
-                      {value === null ? '—' : value.toLocaleString()}
-                    </p>
-                    <p className="text-[10px] text-brand-muted mt-0.5">{label}</p>
-                  </div>
-                ))}
+              <div className="bg-brand-bg rounded-xl border border-brand-border p-3 flex items-center justify-between">
+                <p className="text-[10px] text-brand-muted uppercase tracking-wider">Team members (GHL users)</p>
+                <p className="num text-sm font-bold text-brand-text">
+                  {liveMetrics.users === null ? '—' : liveMetrics.users.toLocaleString()}
+                </p>
               </div>
             ) : null}
             {(signalRows.length > 0 || liveMetrics?.lastLogin) && (
