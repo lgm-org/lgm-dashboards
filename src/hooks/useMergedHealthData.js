@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useGHLAccounts }     from './useGHLAccounts'
 import { useCallData }        from './useCallData'
 import { useGhlAccountStats } from './useGhlAccountStats'
+import { computeHealth } from '../lib/healthScoreModel'
 
 const STRIPE_REFRESH_MS = 300_000 // 5 min — match GHL cadence
 
@@ -285,26 +286,35 @@ export function useMergedHealthData() {
       ...(() => {
         const lcDays = daysSinceLatestMonth(lcMonths[g.ghlId])
         const s = statsMap[g.ghlId] || {}
-        // Four GHL activity signals — Last Activity is whichever is newest
-        const signals = [
-          { key: 'contact_updated', date: s.lastContactUpdate  },
-          { key: 'contact_created', date: s.lastContactCreated },
-          { key: 'call',            date: s.lastCallDate       },
-          { key: 'sale',            date: s.lastSaleDate       },
-        ].filter(x => x.date)
-        const newest = signals.length
-          ? signals.reduce((a, b) => (new Date(b.date) > new Date(a.date) ? b : a))
-          : null
-        const ghlDays = newest
-          ? Math.max(0, Math.floor((Date.now() - new Date(newest.date).getTime()) / 86_400_000))
+        // Signals for John's 100-point model (batch-synced into ghl_account_stats)
+        const hasGhlData = s.healthScore !== null && s.healthScore !== undefined
+        const signals = {
+          hasGhlData,
+          calls7d:              s.calls7d            ?? null,
+          callsYesterdayIn:     s.callsYesterdayIn   ?? null,
+          callsYesterdayOut:    s.callsYesterdayOut  ?? null,
+          callsSource:          s.callsSource        || null,
+          lastCallAt:           s.lastCallDate       || null,
+          lastSaleAt:           s.lastSaleDate       || null,
+          won30d:               s.won30d             ?? null,
+          wonPrior30d:          s.wonPrior30d        ?? null,
+          tickets7d:            s.tickets7d          ?? null,
+          lastContactCreatedAt: s.lastContactCreated || null,
+        }
+        const health = computeHealth(signals)
+        // Last Meaningful Activity = most recent of call / new contact created / won sale
+        const meaningfulAt = health.meaningfulActivityAt || s.meaningfulActivityAt || null
+        const ghlDays = meaningfulAt
+          ? Math.max(0, Math.floor((Date.now() - new Date(meaningfulAt).getTime()) / 86_400_000))
           : null
         const usedLc = ghlDays === null && lcDays !== null
         return {
+          _signals:            signals,
+          _healthV2:           health,
           lastActivity:        ghlDays !== null ? ghlDays : lcDays,
           lastLcActivityMonth: usedLc ? lcMonths[g.ghlId] : null,
           _lastActivitySource: ghlDays !== null ? 'ghl_contact' : (lcDays !== null ? 'lc' : null),
-          _lastActivitySignal: newest?.key || null,
-          ghlContactActivity:  newest?.date || null,
+          meaningfulActivityAt: meaningfulAt,
           lastContactUpdate:   s.lastContactUpdate  || null,
           lastContactCreated:  s.lastContactCreated || null,
           lastCallDate:        s.lastCallDate       || null,

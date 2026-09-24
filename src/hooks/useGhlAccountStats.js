@@ -16,7 +16,7 @@ export function useGhlAccountStats() {
 
     const load = () =>
       fetch(
-        `${SUPABASE_URL}/rest/v1/ghl_account_stats?select=location_id,last_contact_update,last_contact_created,last_call_date,last_sale_date,sync_note,synced_at&limit=2000`,
+        `${SUPABASE_URL}/rest/v1/ghl_account_stats?select=location_id,last_contact_update,last_contact_created,last_call_date,last_sale_date,calls_7d,calls_yesterday_in,calls_yesterday_out,calls_source,won_30d,won_prior_30d,tickets_7d,meaningful_activity_at,health_score,sync_note,synced_at&limit=2000`,
         { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` } }
       )
         .then(r => r.json())
@@ -30,6 +30,15 @@ export function useGhlAccountStats() {
                 lastContactCreated: row.last_contact_created || null,
                 lastCallDate:       row.last_call_date       || null,
                 lastSaleDate:       row.last_sale_date       || null,
+                calls7d:            row.calls_7d             ?? null,
+                callsYesterdayIn:   row.calls_yesterday_in   ?? null,
+                callsYesterdayOut:  row.calls_yesterday_out  ?? null,
+                callsSource:        row.calls_source         || null,
+                won30d:             row.won_30d              ?? null,
+                wonPrior30d:        row.won_prior_30d        ?? null,
+                tickets7d:          row.tickets_7d           ?? null,
+                meaningfulActivityAt: row.meaningful_activity_at || null,
+                healthScore:        row.health_score         ?? null,
                 syncNote:           row.sync_note            || null,
                 syncedAt:           row.synced_at            || null,
               }

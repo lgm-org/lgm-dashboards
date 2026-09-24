@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { differenceInDays, parseISO, isValid, format } from 'date-fns'
-import { recommendAction, scoreAccount, classify, billableUsers, isFlagged } from '../../lib/healthEngine'
+import { recommendAction, accountHealth, billableUsers, isFlagged } from '../../lib/healthEngine'
 import GHLInfoPanel from './GHLInfoPanel'
 import InfoTip from './InfoTip'
 import { useRole } from '../../contexts/RoleContext'
@@ -44,15 +44,54 @@ const G   = '#8CC63F'
 const AMB = '#EAB308'
 const RED = '#EF4444'
 
+const GREY = '#9CA3AF'
 function bandColor(band) {
   if (band === 'healthy') return G
   if (band === 'watch')   return AMB
+  if (band === 'no_data') return GREY
   return RED
 }
 function bandLabel(band) {
-  if (band === 'healthy') return 'Active'
+  if (band === 'healthy') return 'Healthy'
   if (band === 'watch')   return 'Watch'
-  return 'Inactive'
+  if (band === 'no_data') return 'No Data'
+  return 'At Risk'
+}
+
+const fmtDaysAgo = (d) => d === null || d === undefined ? '—' : d === 0 ? 'Today' : d === 1 ? '1 day ago' : `${d} days ago`
+
+// One scored category: title, points bar, then its rows
+function ScoreCategory({ title, pts, max, children }) {
+  const pct   = max ? (pts / max) * 100 : 0
+  const color = pct >= 70 ? G : pct >= 40 ? AMB : RED
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[12px] mb-1">
+        <span className="font-semibold text-brand-heading">{title}</span>
+        <span className="num font-bold" style={{ color }}>{pts} / {max}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-brand-border overflow-hidden mb-1.5">
+        <div className="h-full rounded-full score-bar-fill" style={{ width: `${pct}%`, background: color }} />
+      </div>
+      <div className="space-y-0.5">{children}</div>
+    </div>
+  )
+}
+
+// A detail row inside a category. `pts` shows how this row contributed; rows without pts are context only.
+function ScoreRow({ label, value, pts, max, warn, muted }) {
+  return (
+    <div className={`flex items-center justify-between text-[11px] ${muted ? 'text-brand-muted/80' : 'text-brand-text'}`}>
+      <span className="flex items-center gap-1">
+        {label}
+        {muted && <span className="text-[9px] text-brand-muted/60">(not scored)</span>}
+      </span>
+      <span className="num flex items-center gap-2">
+        <span className={warn ? 'font-semibold' : ''} style={warn ? { color: AMB } : undefined}>{value}{warn ? ' ⚠' : ''}</span>
+        {pts !== undefined && <span className="text-[10px] text-brand-muted w-12 text-right">{pts} / {max}</span>}
+      </span>
+    </div>
+  )
 }
 
 function fmtTs(ts) {
@@ -210,19 +249,14 @@ export default function AccountModal({ account, onClose }) {
 
   if (!account) return null
 
-  // Re-score with the live GHL signals when the modal fetch has returned; same formula as the table.
-  const liveAccount = {
-    ...account,
-    lastContactUpdate:  liveMetrics?.lastContactUpdate  ?? account.lastContactUpdate  ?? null,
-    lastContactCreated: liveMetrics?.lastContactCreated ?? account.lastContactCreated ?? null,
-    lastCallDate:       liveMetrics?.lastCallDate       ?? account.lastCallDate       ?? null,
-    lastSaleDate:       liveMetrics?.lastSaleDate       ?? account.lastSaleDate       ?? null,
-  }
-  const { score, parts, signalDays } = scoreAccount(liveAccount)
-  const band    = classify(score)
+  // Same signals and formula as the table (batch-synced from GHL + Freshdesk)
+  const health  = accountHealth(account)
+  const score   = health.score
+  const band    = health.band
   const color   = bandColor(band)
-  const action  = recommendAction(liveAccount)
-  const flagged = isFlagged(liveAccount)
+  const action  = recommendAction(account)
+  const flagged = isFlagged(account)
+  const sig     = account._signals || {}
 
   const dateAdded = account.ghlDateAdded
   let tenureDays = null, joinFormatted = null
@@ -238,45 +272,29 @@ export default function AccountModal({ account, onClose }) {
 
   const initials = account.accountName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
 
-  // Activity source: most-recent of GHL dateUpdated and LC wallet latest month
-  const activitySource = account._lastActivitySource || (account.lastLcActivityMonth ? 'lc' : 'ghl')
-  const lcDays   = account.lastLcActivityMonth ? account.lastActivity : null
-  const lcSource = account.lastLcActivityMonth
-    ? `Fallback — LC wallet last charge ${account.lastLcActivityMonth} · no GHL activity synced`
-    : null
-
-  const activityLabel = activitySource === 'lc'
-    ? `Fallback: LC wallet last charge (${account.lastLcActivityMonth}) — no GHL signals synced`
-    : 'GHL Activity (newest of contact created / updated / call / won sale)'
-
   const daysAgo = (iso) => iso
     ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24)))
     : null
 
-  // Four GHL activity signals — live from the modal fetch, falling back to the cached values
-  const contactUpdatedVal = liveMetrics?.lastContactUpdate  ?? account.lastContactUpdate  ?? null
-  const contactCreatedVal = liveMetrics?.lastContactCreated ?? account.lastContactCreated ?? null
-  const lastCallVal       = liveMetrics?.lastCallDate       ?? account.lastCallDate       ?? null
-  const lastSaleDateVal   = liveMetrics?.lastSaleDate       ?? account.lastSaleDate       ?? null
-
-  const realtimeDays      = daysAgo(contactUpdatedVal)
-  const contactCreatedDays = daysAgo(contactCreatedVal)
-  const lastCallDays      = daysAgo(lastCallVal)
-  const lastSaleDays      = daysAgo(lastSaleDateVal)
-  const lastLoginDays     = daysAgo(liveMetrics?.lastLogin)
-
-  const signalRows = [
-    { label: 'Last Contact Updated', days: realtimeDays,       date: contactUpdatedVal, note: 'GHL contact record' },
-    { label: 'Last Contact Created', days: contactCreatedDays, date: contactCreatedVal, note: 'GHL new contact' },
-    { label: 'Last Call',            days: lastCallDays,       date: lastCallVal,       note: 'GHL call conversation' },
-    { label: 'Last Sale',            days: lastSaleDays,       date: lastSaleDateVal,   note: 'GHL won opportunity' },
-  ].filter(r => r.date)
-
-  // Last Activity = newest of the four GHL signals; LC wallet only when none exist
-  const ghlDays   = signalRows.length ? Math.min(...signalRows.map(r => r.days)) : null
+  // Last Meaningful Activity = most recent of call / new contact / won sale.
+  // LC wallet month is only a fallback when GHL gives us nothing for this sub-account.
+  const activitySource = account._lastActivitySource || null
+  const ghlDays   = activitySource === 'ghl_contact' ? account.lastActivity : null
+  const lcDays    = activitySource === 'lc' ? account.lastActivity : null
   const days      = ghlDays ?? lcDays
-  const actSource = ghlDays !== null ? 'GHL activity (newest of contacts / calls / sales)' : lcSource
+  const lcSource  = account.lastLcActivityMonth
+    ? `Fallback — LC wallet last charge ${account.lastLcActivityMonth} · no GHL activity synced`
+    : null
+  const actSource = ghlDays !== null ? 'Most recent of: call · new contact · won sale' : lcSource
   const actColor  = days !== null ? (days <= 7 ? G : days <= 30 ? AMB : RED) : undefined
+  const lastLoginDays = daysAgo(liveMetrics?.lastLogin)
+
+  // Displayed under Live Account Metrics — dates behind Last Meaningful Activity
+  const signalRows = [
+    { label: 'Last Call',        days: daysAgo(sig.lastCallAt),           date: sig.lastCallAt,           note: sig.callsSource === 'call_log' ? 'call log' : 'GHL conversations' },
+    { label: 'Last New Contact', days: daysAgo(sig.lastContactCreatedAt), date: sig.lastContactCreatedAt, note: 'display only · not scored' },
+    { label: 'Last Won Sale',    days: daysAgo(sig.lastSaleAt),           date: sig.lastSaleAt,           note: 'GHL won opportunity' },
+  ].filter(r => r.date)
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6" onClick={onClose}>
@@ -327,11 +345,11 @@ export default function AccountModal({ account, onClose }) {
             <div className="bg-brand-bg rounded-xl p-3 border border-brand-border text-center relative">
               <div className="absolute top-2 right-2">
                 <InfoTip
-                  text={"Four GHL signals are each scored by days since they last happened:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\n• Last contact created\n• Last contact updated\n• Last call\n• Last won sale\nHealth score = the highest of the four (i.e. the most recent signal).\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.\nContact count and opportunity count are NOT part of the score."}
+                  text={"100-point health score — is this customer using Little Giant, producing sales, and free of warning signs?\n\nPlatform Activity (45): rolling 7-day calls (30) + days since last call (15)\nSales Activity (40): days since last won sale (25) + won sales in last 30 days (15)\nAccount Health (15): Freshdesk tickets in last 7 days\n\nBands: 70+ Healthy · 55–69 Watch · <55 At Risk.\nNot scored: new contacts, contact updates, yesterday's calls, sales trend, add-ons, billing, LC wallet."}
                   position="top-end"
                 />
               </div>
-              <p className="num text-base font-bold" style={{ color }}>{score}/100</p>
+              <p className="num text-base font-bold" style={{ color }}>{score ?? '—'}/100</p>
               <p className="text-[10px] text-brand-muted uppercase tracking-wider mt-0.5">Health Score</p>
             </div>
             <div className="bg-brand-bg rounded-xl p-3 border border-brand-border text-center">
@@ -342,51 +360,77 @@ export default function AccountModal({ account, onClose }) {
             </div>
           </div>
 
-          {/* Score breakdown */}
-          <div className="rounded-xl border border-brand-border p-4 space-y-3">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Score Breakdown</p>
+          {/* Score breakdown — John's three categories */}
+          <div className="rounded-xl border border-brand-border p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted">Health Score Breakdown</p>
               {flagged && (
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: '#EAB30818', color: '#92400e' }}>
                   ⚑ NO SALE 10+ DAYS
                 </span>
               )}
             </div>
-            {signalDays.hasGhl ? (
-              <>
-                <SubScoreBar label={`Last contact created — ${signalDays.contactCreated !== null ? `${signalDays.contactCreated}d ago` : 'none'}`} score={parts.contactCreated ?? 0} />
-                <SubScoreBar label={`Last contact updated — ${signalDays.contactUpdated !== null ? `${signalDays.contactUpdated}d ago` : 'none'}`} score={parts.contactUpdated ?? 0} />
-                <SubScoreBar label={`Last call — ${signalDays.call !== null ? `${signalDays.call}d ago` : 'none recorded'}`} score={parts.call ?? 0} />
-                <SubScoreBar label={`Last won sale — ${signalDays.sale !== null ? `${signalDays.sale}d ago` : 'none recorded'}`} score={parts.sale ?? 0} />
-              </>
+
+            {band === 'no_data' ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800 leading-snug">
+                {account.ghlDisabled || /not active/i.test(account.ghlSyncNote || '')
+                  ? 'GHL reports this sub-account as not active (paused/inactive in GHL). GHL blocks API access for it, so no activity can be read — check the sub-account status in GHL.'
+                  : account.ghlSyncNote
+                    ? `GHL: ${account.ghlSyncNote}.`
+                    : 'No GHL data synced for this sub-account yet — it will score on the next sync.'}
+                {' '}No score is calculated without GHL data.
+              </div>
             ) : (
               <>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800 leading-snug">
-                  {account.ghlDisabled || /not active/i.test(account.ghlSyncNote || '')
-                    ? 'GHL reports this sub-account as not active (paused/inactive in GHL). GHL blocks API access for it, so no activity can be read — check the sub-account status in GHL.'
-                    : account.ghlSyncNote
-                      ? `GHL: ${account.ghlSyncNote}.`
-                      : 'No GHL activity synced for this sub-account yet.'}
-                  {activitySource === 'lc'
-                    ? ' Score is using the LC wallet last-charge month as a fallback.'
-                    : ' No LC wallet data either — score is neutral (50).'}
-                </div>
-                <SubScoreBar label={activityLabel} score={parts.activity} />
+                <ScoreCategory title="Platform Activity" pts={health.platform.pts} max={health.platform.max}>
+                  <ScoreRow label="7-Day Calls" value={health.platform.calls7d.value} pts={health.platform.calls7d.pts} max={30} />
+                  <ScoreRow label="Last Call" value={fmtDaysAgo(health.platform.lastCall.days)} pts={health.platform.lastCall.pts} max={15} warn={health.platform.lastCall.days > 7} />
+                  <ScoreRow label="Yesterday ↗ Outbound Calls" value={sig.callsYesterdayOut ?? '—'} muted />
+                  <ScoreRow label="Yesterday ↙ Inbound Calls"  value={sig.callsYesterdayIn ?? '—'} muted />
+                </ScoreCategory>
+
+                <ScoreCategory title="Sales Activity" pts={health.sales.pts} max={health.sales.max}>
+                  <ScoreRow label="Last Sale" value={fmtDaysAgo(health.sales.lastSale.days)} pts={health.sales.lastSale.pts} max={25} warn={flagged} />
+                  <ScoreRow label="Sales — Last 30 Days" value={health.sales.won30d.value} pts={health.sales.won30d.pts} max={15} />
+                  <ScoreRow label="Sales — Prior 30 Days" value={health.sales.wonPrior30d} muted />
+                  <ScoreRow label="Trend" value={health.sales.trendPct === null ? '—' : `${health.sales.trendPct > 0 ? '↑' : health.sales.trendPct < 0 ? '↓' : '→'}${Math.abs(health.sales.trendPct)}%`} muted warn={health.sales.trendPct !== null && health.sales.trendPct < 0} />
+                </ScoreCategory>
+
+                <ScoreCategory title="Account Health" pts={health.support.pts} max={health.support.max}>
+                  <ScoreRow
+                    label="Support Tickets — Last 7 Days"
+                    value={health.support.tickets7d.value === null ? 'no Freshdesk company' : health.support.tickets7d.value}
+                    pts={health.support.tickets7d.pts} max={15}
+                    warn={(health.support.tickets7d.value ?? 0) >= 2}
+                  />
+                </ScoreCategory>
+
+                {health.warnings.length > 0 && (
+                  <div className="pt-3 border-t border-brand-border">
+                    <p className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: AMB }}>Why this account needs attention</p>
+                    <ul className="space-y-0.5">
+                      {health.warnings.map(w => (
+                        <li key={w} className="text-[11px] text-brand-text flex items-start gap-1.5">
+                          <span style={{ color: AMB }}>⚠</span>{w}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </>
             )}
-            <p className="text-[10px] text-brand-muted leading-snug">
-              {signalDays.hasGhl
-                ? 'Each signal: days since → ≤3d 100 · ≤7d 90 · ≤14d 80 · ≤30d 70 · ≤60d 40 · ≤90d 20 · >90d 5. Health score = highest of the four.'
-                : 'Fallback only: days since the LC wallet charge month → same table (≤3d 100 … >90d 5). LC is never used when GHL signals exist.'}
-            </p>
-            <div className="mt-3 pt-3 border-t border-brand-border">
+
+            <div className="pt-3 border-t border-brand-border">
               <div className="flex items-center justify-between text-[11px] mb-1.5">
-                <span className="text-brand-muted font-semibold">Composite</span>
-                <span className="num font-bold text-[14px]" style={{ color }}>{score}/100</span>
+                <span className="text-brand-muted font-semibold">Health Score</span>
+                <span className="num font-bold text-[14px]" style={{ color }}>{score ?? '—'}/100</span>
               </div>
               <div className="h-2 rounded-full bg-brand-border overflow-hidden">
-                <div className="h-full rounded-full score-bar-fill" style={{ width: `${score}%`, background: color }} />
+                <div className="h-full rounded-full score-bar-fill" style={{ width: `${score ?? 0}%`, background: color }} />
               </div>
+              <p className="text-[10px] text-brand-muted mt-1.5 leading-snug">
+                Platform 45 · Sales 40 · Account Health 15 — bands: 70+ Healthy · 55–69 Watch · below 55 At Risk.
+              </p>
             </div>
           </div>
 
@@ -395,7 +439,7 @@ export default function AccountModal({ account, onClose }) {
             borderColor: `${color}30`, background: `${color}08`
           }}>
             <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color }}>Recommended Action</p>
-            <p className="text-[12px]" style={{ color: band === 'at_risk' ? RED : band === 'watch' ? AMB : '#3a6b10' }}>
+            <p className="text-[12px]" style={{ color: band === 'at_risk' ? RED : band === 'watch' ? AMB : band === 'no_data' ? GREY : '#3a6b10' }}>
               {action}
             </p>
           </div>
@@ -418,12 +462,12 @@ export default function AccountModal({ account, onClose }) {
             )}
             <div>
               <p className="text-[10px] text-brand-muted uppercase tracking-wider flex items-center gap-1">
-                {ghlDays !== null ? 'Last Active in GHL' : 'Last Active (fallback)'}
+                {ghlDays !== null ? 'Last Meaningful Activity' : 'Last Meaningful Activity (fallback)'}
                 <InfoTip
                   position="bottom-start"
                   text={ghlDays !== null
-                    ? "Days since the newest of four GHL signals for this sub-account:\n• last contact created\n• last contact updated\n• last call\n• last won sale\nEach is listed under Live Account Metrics below."
-                    : "GHL returned none of the four activity signals for this sub-account, so this falls back to the LC wallet: days since the last month with a wallet charge.\nMost clients don't buy LC usage, so this is only a rough proxy — treat it as 'unknown', not as real inactivity."}
+                    ? "Days since the most recent of:\n• last call\n• last new contact created\n• last won sale\nContact updates are excluded — automations change contacts, so they don't prove anyone is using the account. Each date is listed under Live Account Metrics below."
+                    : "GHL returned no calls, contacts or sales for this sub-account, so this falls back to the LC wallet: days since the last month with a wallet charge.\nMost clients don't buy LC usage, so this is only a rough proxy — treat it as 'unknown', not as real inactivity."}
                 />
               </p>
               <p className="num font-medium mt-0.5" style={{ color: days !== null ? actColor : undefined }}>

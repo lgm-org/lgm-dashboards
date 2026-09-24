@@ -25,8 +25,8 @@ function fmtDate(s) {
 
 function ScorePill({ score }) {
   if (score == null) return <span className="text-brand-muted text-[10px]">—</span>
-  const bg = score >= 80 ? '#8CC63F18' : score >= 50 ? '#EAB30818' : '#EF444418'
-  const c  = score >= 80 ? G           : score >= 50 ? AMB          : RED
+  const bg = score >= 70 ? '#8CC63F18' : score >= 55 ? '#EAB30818' : '#EF444418'
+  const c  = score >= 70 ? G           : score >= 55 ? AMB          : RED
   return (
     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums"
       style={{ background: bg, color: c }}>

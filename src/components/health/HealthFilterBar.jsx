@@ -84,12 +84,13 @@ export default function HealthFilterBar({ filters, setFilters, accountTypes, tot
             }}
           >
             <option value="all">All Accounts</option>
-            <option value="healthy">Active — last 30 days</option>
-            <option value="watch">Watch — 30–60 days</option>
-            <option value="at_risk">Inactive — 60+ days</option>
+            <option value="healthy">Healthy — score 70+</option>
+            <option value="watch">Watch — score 55–69</option>
+            <option value="at_risk">At Risk — score below 55</option>
+            <option value="no_data">No GHL data</option>
           </select>
           <InfoTip
-            text={"Filter by GHL activity recency.\nActivity = newest of: contact created, contact updated, call, won sale.\nActive = within 30 days · Watch = 30–60 days · Inactive = 60+ days."}
+            text={"Filter by 100-point health score band.\nPlatform Activity 45 (7-day calls + last call) · Sales Activity 40 (last sale + sales in 30 days) · Account Health 15 (support tickets in 7 days).\nNo GHL data = GHL returned nothing for the sub-account (paused / not active)."}
             position="bottom-end"
           />
         </div>

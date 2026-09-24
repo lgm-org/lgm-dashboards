@@ -12,15 +12,16 @@ function fmt$(n) { return n > 0 ? '$' + Math.round(n).toLocaleString() : '$0' }
 function bandColor(band) {
   if (band === 'healthy') return G
   if (band === 'watch')   return AMB
+  if (band === 'no_data') return '#9CA3AF'
   return RED
 }
 
 function HealthPill({ score, band }) {
-  const c = bandColor(band ?? 'at_risk')
+  const c = bandColor(band ?? 'no_data')
   return (
     <span className="num inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border"
       style={{ color: c, background: `${c}12`, borderColor: `${c}28` }}>
-      {score}
+      {score ?? '—'}
     </span>
   )
 }
@@ -228,7 +229,7 @@ function AgentTable({ group, onAccountClick, isAdmin }) {
 
                   {/* Health */}
                   <td className="px-2 pr-4 py-2 text-center">
-                    <HealthPill score={a._health?.score ?? 0} band={a._health?.band} />
+                    <HealthPill score={a._health?.score ?? null} band={a._health?.band} />
                   </td>
                 </tr>
               )

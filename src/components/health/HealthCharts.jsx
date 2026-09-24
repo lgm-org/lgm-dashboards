@@ -32,19 +32,21 @@ const TT_STYLE = { fontSize: 11, border: '1px solid #E5E7E5', borderRadius: 8, b
 // ── 1. Health Band Distribution (donut) ──────────────────────────────────────
 function HealthDistribution({ accounts }) {
   const counts = {
-    Active:   accounts.filter(a => a._health?.band === 'healthy').length,
-    Watch:    accounts.filter(a => a._health?.band === 'watch').length,
-    Inactive: accounts.filter(a => a._health?.band === 'at_risk').length,
+    Healthy: accounts.filter(a => a._health?.band === 'healthy').length,
+    Watch:   accounts.filter(a => a._health?.band === 'watch').length,
+    AtRisk:  accounts.filter(a => a._health?.band === 'at_risk').length,
+    NoData:  accounts.filter(a => a._health?.band === 'no_data').length,
   }
   const data = [
-    { name: 'Active',   value: counts.Active,   color: G   },
-    { name: 'Watch',    value: counts.Watch,    color: AMB },
-    { name: 'Inactive', value: counts.Inactive, color: RED },
+    { name: 'Healthy', value: counts.Healthy, color: G   },
+    { name: 'Watch',   value: counts.Watch,   color: AMB },
+    { name: 'At Risk', value: counts.AtRisk,  color: RED },
+    { name: 'No Data', value: counts.NoData,  color: '#D1D5DB' },
   ].filter(d => d.value > 0)
 
   return (
-    <Card title="Activity Distribution" subtitle="Accounts by GHL contact activity recency" delay={620}
-      infoText="Portfolio breakdown by activity recency. Active = contact activity in last 30 days. Watch = 30–60 days since last activity. Inactive = 60+ days no activity detected in GHL contacts.">
+    <Card title="Health Distribution" subtitle="Accounts by health score band" delay={620}
+      infoText={"Portfolio breakdown by 100-point health score.\nHealthy = 70+ · Watch = 55–69 · At Risk = below 55.\nNo Data = GHL returned nothing for the sub-account (paused / not active), so no score is calculated."}>
       <div className="flex flex-col sm:flex-row items-center gap-6">
         <div className="w-36 h-36 flex-shrink-0">
           <ResponsiveContainer width="100%" height="100%">
@@ -58,9 +60,10 @@ function HealthDistribution({ accounts }) {
         </div>
         <div className="flex-1 space-y-3 w-full">
           {[
-            { label: 'Active (≤30 days)',  count: counts.Active,   color: G   },
-            { label: 'Watch (30–60 days)', count: counts.Watch,    color: AMB },
-            { label: 'Inactive (60+ days)', count: counts.Inactive, color: RED },
+            { label: 'Healthy (70+)',   count: counts.Healthy, color: G   },
+            { label: 'Watch (55–69)',   count: counts.Watch,   color: AMB },
+            { label: 'At Risk (<55)',   count: counts.AtRisk,  color: RED },
+            { label: 'No Data',         count: counts.NoData,  color: '#9CA3AF' },
           ].map(({ label, count, color }) => (
             <div key={label} className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
@@ -170,9 +173,9 @@ function RevenueByBand({ accounts = [], stripeLoading = false }) {
   const billedAccounts = accounts.filter(a => (a.totalRev || 0) > 0)
 
   const bands = [
-    { name: 'Active',   band: 'healthy', color: G   },
-    { name: 'Watch',    band: 'watch',   color: AMB },
-    { name: 'Inactive', band: 'at_risk', color: RED },
+    { name: 'Healthy', band: 'healthy', color: G   },
+    { name: 'Watch',   band: 'watch',   color: AMB },
+    { name: 'At Risk', band: 'at_risk', color: RED },
   ]
 
   const chartData = bands.map(d => ({
@@ -186,7 +189,7 @@ function RevenueByBand({ accounts = [], stripeLoading = false }) {
 
   return (
     <Card title="Revenue by Health Band" subtitle="Monthly revenue split by account health" delay={740}
-      infoText="Monthly revenue grouped by activity band — Active (≤30 days), Watch (30–60 days), Inactive (60+ days). Shows how much of your MRR is at risk based on client engagement. Pulled from Stripe billing.">
+      infoText="Monthly revenue grouped by health band — Healthy (70+), Watch (55–69), At Risk (<55). Shows how much of your MRR sits with accounts Customer Success should investigate. Pulled from Stripe billing.">
       {stripeLoading ? (
         <div className="h-[160px] flex flex-col justify-center gap-3 animate-pulse px-2">
           <div className="flex items-end gap-2 h-20">

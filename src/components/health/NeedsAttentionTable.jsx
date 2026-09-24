@@ -11,6 +11,7 @@ const PAGE_SIZE           = 20
 function bandColor(band) {
   if (band === 'healthy') return G
   if (band === 'watch')   return AMB
+  if (band === 'no_data') return '#9CA3AF'
   return RED
 }
 
@@ -31,10 +32,10 @@ function HealthPill({ score, band }) {
     <div className="flex items-center gap-1.5">
       <span className="num inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border"
         style={{ color: c, background: `${c}12`, borderColor: `${c}28` }}>
-        {score}
+        {score ?? '—'}
       </span>
       <div className="w-10 h-1 rounded-full bg-brand-border overflow-hidden">
-        <div className="h-full score-bar-fill rounded-full" style={{ width: `${score}%`, background: c }} />
+        <div className="h-full score-bar-fill rounded-full" style={{ width: `${score ?? 0}%`, background: c }} />
       </div>
     </div>
   )
@@ -105,8 +106,8 @@ const TABLE_HEADERS = [
   { label: 'Account Name',       tip: null },
   { label: 'Location',           tip: 'City and state from the GHL sub-account profile.' },
   { label: 'Email',              tip: 'Contact email on file in GHL.' },
-  { label: 'Last Activity',      tip: 'Days since the newest GHL signal: contact created, contact updated, call, or won sale. Not a login metric (GHL does not expose logins). Accounts appear here when this exceeds 30 days.' },
-  { label: 'Health Score',       tip: 'Activity-based health score 0–100. Based on days since last detected GHL contact activity. 70+ = Active (≤30 days) · 40–69 = Watch (30–60 days) · <40 = Inactive (60+ days — shown in this table).' },
+  { label: 'Last Meaningful',    tip: 'Last Meaningful Activity — days since the most recent of: call, new contact created, won sale. Contact updates are excluded (automations change contacts). Not a login metric.' },
+  { label: 'Health Score',       tip: '100-point score: Platform Activity 45 (7-day calls + last call) · Sales Activity 40 (last sale + sales in 30 days) · Account Health 15 (tickets in 7 days). Accounts appear in this table when the score is below 55 (At Risk).' },
   { label: 'Recommended Action', tip: 'Rule-based next step generated from the account\'s activity data.' },
   { label: 'Status',             tip: 'Your team\'s outreach status. Tracked per-browser.' },
   { label: 'Actions',            tip: null },
@@ -139,7 +140,7 @@ function AccountRow({ a, i, getStatus, getResolvedAt, setStatus, onAccountClick 
         <ActivityBadge days={a.lastActivity} source={a.lastLcActivityMonth ? 'lc' : 'ghl'} />
       </td>
       <td className="px-3 py-3">
-        <HealthPill score={a._health?.score ?? 0} band={a._health?.band ?? 'at_risk'} />
+        <HealthPill score={a._health?.score ?? null} band={a._health?.band ?? 'no_data'} />
       </td>
       <td className="px-3 py-3 max-w-[200px]">
         <p className="text-[11px] text-brand-muted leading-snug">{a._health?.action ?? '—'}</p>

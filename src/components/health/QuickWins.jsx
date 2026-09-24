@@ -8,6 +8,7 @@ const AMB = '#EAB308'
 function bandColor(band) {
   if (band === 'healthy') return G
   if (band === 'watch')   return AMB
+  if (band === 'no_data') return '#9CA3AF'
   return RED
 }
 

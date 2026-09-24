@@ -307,8 +307,9 @@ export default function HealthDashboard({ filters, setFilters }) {
   }, [filteredAccounts, filters.dateRange])
 
   const avgScore = useMemo(() => {
-    if (!filteredAccounts.length) return 0
-    return filteredAccounts.reduce((s, a) => s + (a._health?.score ?? 0), 0) / filteredAccounts.length
+    const scored = filteredAccounts.filter(a => a._health?.score !== null && a._health?.score !== undefined)
+    if (!scored.length) return 0
+    return scored.reduce((s, a) => s + a._health.score, 0) / scored.length
   }, [filteredAccounts])
 
   const avgTenureDays = useMemo(() => {
@@ -711,7 +712,7 @@ export default function HealthDashboard({ filters, setFilters }) {
                       <span className="num text-[11px] font-bold px-2 py-0.5 rounded-full"
                         style={{ color: a._health?.band === 'healthy' ? '#8CC63F' : a._health?.band === 'watch' ? '#EAB308' : '#EF4444',
                                  background: a._health?.band === 'healthy' ? '#8CC63F12' : a._health?.band === 'watch' ? '#EAB30812' : '#EF444412' }}>
-                        {a._health?.score ?? 0}
+                        {a._health?.score ?? '—'}
                       </span>
                     </td>
                   </tr>

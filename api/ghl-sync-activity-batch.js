@@ -1,11 +1,19 @@
-// Batch-syncs GHL activity signals for all sub-accounts into ghl_account_stats.
+// Batch-syncs the customer-health signals for all sub-accounts into ghl_account_stats and
+// writes a daily score snapshot to health_score_daily.
 // Called fire-and-forget from the health dashboard on load (and from the Sync button).
 // Processes up to 20 accounts per call; paginated via ?skip=.
-// Four signals per account: last contact updated, last contact created, last call, last won sale.
-// ?debug=1 returns per-location GHL status codes and Supabase errors.
+// ?debug=1 returns per-location signals, GHL statuses and (first location) raw samples.
+//
+// Signals per account (John's model, 2026-09-24):
+//   calls7d, lastCallAt, callsYesterdayIn/Out  ← call_log table when it has data, else GHL
+//                                                conversations whose last message is a call
+//   lastSaleAt, won30d, wonPrior30d            ← GHL won opportunities
+//   tickets7d                                  ← Freshdesk (company name = GHL location id)
+//   lastContactCreatedAt                       ← GHL contacts (display only, not scored)
 
 import { kv } from './_supabase.js'
 import { createClient } from '@supabase/supabase-js'
+import { computeHealth } from '../src/lib/healthScoreModel.js'
 
 const GHL_BASE   = 'https://services.leadconnectorhq.com'
 const GHL_VER    = '2021-07-28'
@@ -13,6 +21,9 @@ const COMPANY_ID = 'MKJeZKBhrN9uLt4ZWZCa'
 const GOALS_APP_CLIENT_ID = '6a6dea0af575e7245fd2313c-mtkerbtj'
 
 const BATCH_SIZE = 20
+const DAY_MS     = 86_400_000
+
+// ── OAuth ─────────────────────────────────────────────────────────────────────
 
 async function refreshToken(tokenData) {
   try {
@@ -68,11 +79,7 @@ async function getLocationToken(locationId, companyAccessToken) {
     if (!companyAccessToken) return { token: null, reason: 'No company token available' }
     const res = await fetch(`${GHL_BASE}/oauth/locationToken`, {
       method: 'POST',
-      headers: {
-        Authorization:  `Bearer ${companyAccessToken}`,
-        Version:        GHL_VER,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${companyAccessToken}`, Version: GHL_VER, 'Content-Type': 'application/json' },
       body: JSON.stringify({ companyId: COMPANY_ID, locationId }),
     })
     const loc = await res.json().catch(() => ({}))
@@ -91,6 +98,8 @@ async function getLocationToken(locationId, companyAccessToken) {
   } catch (err) { return { token: null, reason: err.message } }
 }
 
+// ── helpers ───────────────────────────────────────────────────────────────────
+
 // GHL returns lastMessageDate as epoch ms on conversations; normalize everything to ISO
 function toIso(v) {
   if (v === null || v === undefined || v === '') return null
@@ -102,67 +111,146 @@ async function ghl(path, token, method = 'GET', body = null) {
   try {
     const opts = { method, headers: { Authorization: `Bearer ${token}`, Version: GHL_VER, 'Content-Type': 'application/json' } }
     if (body) opts.body = JSON.stringify(body)
-    const res  = await fetch(`${GHL_BASE}${path}`, opts)
+    const res  = await fetch(path.startsWith('http') ? path : `${GHL_BASE}${path}`, opts)
     const text = await res.text()
     let json = null
     try { json = JSON.parse(text) } catch {}
-    return { status: res.status, json, snippet: res.ok ? null : text.slice(0, 200) }
+    return { status: res.status, ok: res.ok, json, snippet: res.ok ? null : text.slice(0, 200) }
   } catch (err) {
-    return { status: 0, json: null, snippet: err.message }
+    return { status: 0, ok: false, json: null, snippet: err.message }
   }
 }
 
-// Try request variants in order; first 2xx with a date wins. Debug output shows which one worked.
-async function tryVariants(variants) {
-  const tried = []
-  for (const v of variants) {
-    const r = await ghl(v.path, v.token, v.method || 'GET', v.body || null)
-    const date = r.status >= 200 && r.status < 300 ? toIso(v.extract(r.json)) : null
-    tried.push({ variant: v.label, status: r.status, err: r.snippet, gotDate: !!date })
-    if (r.status >= 200 && r.status < 300) return { date, tried }
-  }
-  return { date: null, tried }
-}
-
-const newestOf = (list, pick) => list.reduce((best, o) => {
-  const v = pick(o); return v && (!best || new Date(v) > new Date(best)) ? v : best
-}, null)
-
-async function fetchSignals(locationId, token, agencyKey) {
-  const [upd, crt, call, won] = await Promise.all([
-    tryVariants([
-      { label: 'contacts/search sort dateUpdated', token, method: 'POST', path: '/contacts/search',
-        body: { locationId, pageLimit: 1, sort: [{ field: 'dateUpdated', direction: 'desc' }] },
-        extract: j => j?.contacts?.[0]?.dateUpdated },
-    ]),
-    tryVariants([
-      { label: 'contacts/search sort dateAdded', token, method: 'POST', path: '/contacts/search',
-        body: { locationId, pageLimit: 1, sort: [{ field: 'dateAdded', direction: 'desc' }] },
-        extract: j => j?.contacts?.[0]?.dateAdded },
-    ]),
-    tryVariants([
-      { label: 'conversations/search (location token)', token,
-        path: `/conversations/search?locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=1`,
-        extract: j => j?.conversations?.[0]?.lastMessageDate },
-      { label: 'conversations/search (agency key)', token: agencyKey,
-        path: `/conversations/search?locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=1`,
-        extract: j => j?.conversations?.[0]?.lastMessageDate },
-    ]),
-    tryVariants([
-      { label: 'opportunities/search GET status=won', token,
-        path: `/opportunities/search?location_id=${locationId}&status=won&limit=100`,
-        extract: j => newestOf(j?.opportunities || [], o => o.lastStatusChangeAt || o.lastStatusChangeDate || o.updatedAt) },
-      { label: 'opportunities/search POST filters', token, method: 'POST', path: '/opportunities/search',
-        body: { locationId, pageLimit: 1, filters: [{ field: 'status', operator: 'eq', value: 'won' }],
-                sort: [{ field: 'lastStatusChangeAt', direction: 'desc' }] },
-        extract: j => j?.opportunities?.[0]?.lastStatusChangeAt || j?.opportunities?.[0]?.updatedAt },
-    ]),
-  ])
-  return {
-    dates: { contactUpdate: upd.date, contactCreated: crt.date, callDate: call.date, saleDate: won.date },
-    statuses: { contactUpdate: upd.tried, contactCreated: crt.tried, callDate: call.tried, saleDate: won.tried },
+// YYYY-MM-DD for a timestamp in the sub-account's timezone
+function localDay(ts, tz) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ts))
+  } catch {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ts))
   }
 }
+
+// ── Freshdesk: tickets created in the last 7 days, grouped by company name (= GHL location id) ──
+
+let fdCache = { at: 0, map: null }
+
+async function freshdeskTickets7d() {
+  if (fdCache.map && Date.now() - fdCache.at < 10 * 60 * 1000) return fdCache.map
+  const domain = process.env.FRESHDESK_DOMAIN, key = process.env.FRESHDESK_API_KEY
+  if (!domain || !key) return null
+  const base = `https://${domain}.freshdesk.com/api/v2`
+  const auth = 'Basic ' + Buffer.from(`${key}:X`).toString('base64')
+  const fd = async (path) => {
+    const r = await fetch(`${base}${path}`, { headers: { Authorization: auth } })
+    return r.ok ? r.json() : []
+  }
+  try {
+    const [c1, c2] = await Promise.all([fd('/companies?per_page=100&page=1'), fd('/companies?per_page=100&page=2')])
+    const companyName = {}
+    for (const c of [...(Array.isArray(c1) ? c1 : []), ...(Array.isArray(c2) ? c2 : [])]) if (c.id) companyName[c.id] = c.name
+    const since = new Date(Date.now() - 7 * DAY_MS).toISOString()
+    const counts = {}
+    for (let page = 1; page <= 5; page++) {
+      const batch = await fd(`/tickets?updated_since=${encodeURIComponent(since)}&per_page=100&page=${page}&order_by=created_at&order_type=desc`)
+      if (!Array.isArray(batch) || batch.length === 0) break
+      for (const t of batch) {
+        if (t.created_at >= since && t.company_id && companyName[t.company_id]) {
+          const loc = companyName[t.company_id]
+          counts[loc] = (counts[loc] || 0) + 1
+        }
+      }
+      if (batch.length < 100) break
+    }
+    // Every account with a Freshdesk company gets an explicit 0 so "no company" stays null
+    const map = {}
+    for (const name of Object.values(companyName)) if (name) map[name] = counts[name] || 0
+    fdCache = { at: Date.now(), map }
+    return map
+  } catch { return fdCache.map }
+}
+
+// ── Per-location signal fetches ───────────────────────────────────────────────
+
+// Preferred call source: call_log (n8n call-started webhook). Returns null when it has no rows.
+async function callsFromCallLog(sb, locationId, tz) {
+  const since = new Date(Date.now() - 8 * DAY_MS).toISOString()
+  const { data, error } = await sb.from('call_log').select('direction, started_at')
+    .eq('location_id', locationId).gte('started_at', since).order('started_at', { ascending: false }).limit(2000)
+  if (error || !data?.length) return null
+  return summarizeCalls(data.map(r => ({ at: r.started_at, direction: r.direction })), tz, 'call_log')
+}
+
+// Fallback: GHL conversations whose LAST message is a call. Undercounts multi-call threads;
+// consistent across accounts, so fine for relative scoring until call_log has history.
+async function callsFromGhl(locationId, token, tz) {
+  const calls = []
+  let statuses = []
+  let startAfter = null
+  for (let page = 0; page < 3; page++) {
+    const qs = `locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=100` +
+               (startAfter ? `&startAfterDate=${startAfter}` : '')
+    const r = await ghl(`/conversations/search?${qs}`, token)
+    statuses.push({ status: r.status, err: r.snippet })
+    if (!r.ok) break
+    const rows = r.json?.conversations || []
+    // lastCallTimestamp is the actual call time; lastMessageDate can be a later SMS/email in the same thread
+    for (const c of rows) calls.push({ at: toIso(c.lastCallTimestamp || c.lastMessageDate), direction: c.lastMessageDirection || null, raw: page === 0 && calls.length === 0 ? c : undefined })
+    if (rows.length < 100) break
+    const oldest = rows[rows.length - 1]?.lastMessageDate
+    if (!oldest || Date.now() - new Date(toIso(oldest)).getTime() > 7 * DAY_MS) break
+    startAfter = oldest
+  }
+  const sample = calls[0]?.raw
+  return { ...summarizeCalls(calls, tz, 'ghl_conversations'), statuses, sample }
+}
+
+function summarizeCalls(calls, tz, source) {
+  const now = Date.now()
+  const yest = localDay(now - DAY_MS, tz)
+  let calls7d = 0, yIn = 0, yOut = 0, lastCallAt = null
+  for (const c of calls) {
+    if (!c.at) continue
+    const t = new Date(c.at).getTime()
+    if (!lastCallAt || t > new Date(lastCallAt).getTime()) lastCallAt = c.at
+    if (now - t <= 7 * DAY_MS) calls7d++
+    if (localDay(t, tz) === yest) {
+      if (/out/i.test(c.direction || '')) yOut++
+      else if (/in/i.test(c.direction || '')) yIn++
+    }
+  }
+  return { calls7d, callsYesterdayIn: yIn, callsYesterdayOut: yOut, lastCallAt, callsSource: source }
+}
+
+async function wonSales(locationId, token) {
+  const opps = []
+  const statuses = []
+  let url = `/opportunities/search?location_id=${locationId}&status=won&limit=100`
+  for (let page = 0; page < 5 && url; page++) {
+    const r = await ghl(url, token)
+    statuses.push({ status: r.status, err: r.snippet })
+    if (!r.ok) break
+    opps.push(...(r.json?.opportunities || []))
+    url = r.json?.meta?.nextPageUrl || null
+  }
+  const now = Date.now()
+  let lastSaleAt = null, won30d = 0, wonPrior30d = 0
+  for (const o of opps) {
+    const at = toIso(o.lastStatusChangeAt || o.lastStatusChangeDate || o.updatedAt)
+    if (!at) continue
+    const age = now - new Date(at).getTime()
+    if (!lastSaleAt || new Date(at) > new Date(lastSaleAt)) lastSaleAt = at
+    if (age <= 30 * DAY_MS) won30d++
+    else if (age <= 60 * DAY_MS) wonPrior30d++
+  }
+  return { lastSaleAt, won30d, wonPrior30d, statuses, sample: opps[0] }
+}
+
+async function lastContactCreated(locationId, token) {
+  const r = await ghl('/contacts/search', token, 'POST', { locationId, pageLimit: 1, sort: [{ field: 'dateAdded', direction: 'desc' }] })
+  return { at: r.ok ? toIso(r.json?.contacts?.[0]?.dateAdded) : null, statuses: [{ status: r.status, err: r.snippet }] }
+}
+
+// ── Handler ───────────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store')
@@ -182,7 +270,7 @@ export default async function handler(req, res) {
       })
       const d = await r.json()
       const batch = d.locations || []
-      allLocations = allLocations.concat(batch.map(l => l.id).filter(Boolean))
+      allLocations = allLocations.concat(batch.filter(l => l.id).map(l => ({ id: l.id, tz: l.timezone || null })))
       if (batch.length < 100) break
       s += 100
     }
@@ -192,71 +280,100 @@ export default async function handler(req, res) {
 
   const total     = allLocations.length
   const pageBatch = allLocations.slice(skip, skip + BATCH_SIZE)
+  if (pageBatch.length === 0) return res.json({ synced: 0, total, hasMore: false, skip })
 
-  if (pageBatch.length === 0) {
-    return res.json({ synced: 0, total, hasMore: false, skip })
-  }
-
-  const companyToken = await getCompanyToken()
-  const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+  const [companyToken, ticketsMap] = await Promise.all([getCompanyToken(), freshdeskTickets7d()])
+  const sb  = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+  const day = new Date().toISOString().slice(0, 10)
 
   const results = await Promise.allSettled(
-    pageBatch.map(async (locationId) => {
+    pageBatch.map(async ({ id: locationId, tz }, idx) => {
       const { token, reason } = await getLocationToken(locationId, companyToken)
       if (!token) {
-        // Record GHL's reason so the dashboard can say exactly why there is no activity data.
-        // Only sync_note is written — existing dates are left untouched.
         await sb.from('ghl_account_stats').upsert({
-          location_id: locationId, sync_note: reason, synced_at: new Date().toISOString(),
+          location_id: locationId, sync_note: reason, health_score: null, health_parts: null, synced_at: new Date().toISOString(),
         }, { onConflict: 'location_id' })
         return { locationId, skipped: 'no_token', reason }
       }
 
-      const { dates, statuses } = await fetchSignals(locationId, token, agencyKey)
-      const hasAny = Object.values(dates).some(Boolean)
-      const allOk  = Object.values(statuses).every(tried => tried.some(t => t.status >= 200 && t.status < 300))
+      const [logCalls, ghlCalls, sales, created] = await Promise.all([
+        callsFromCallLog(sb, locationId, tz),
+        callsFromGhl(locationId, token, tz),
+        wonSales(locationId, token),
+        lastContactCreated(locationId, token),
+      ])
+      const calls = logCalls || ghlCalls
+      const statuses = { calls: ghlCalls.statuses, sales: sales.statuses, contactCreated: created.statuses }
+      const allOk = Object.values(statuses).every(list => list.length && list[0].status >= 200 && list[0].status < 300)
 
-      let upsertError = null
-      let row = null
-      if (hasAny) {
+      const signals = {
+        hasGhlData:           allOk,
+        calls7d:              calls.calls7d,
+        callsYesterdayIn:     calls.callsYesterdayIn,
+        callsYesterdayOut:    calls.callsYesterdayOut,
+        lastCallAt:           calls.lastCallAt,
+        callsSource:          calls.callsSource,
+        lastSaleAt:           sales.lastSaleAt,
+        won30d:               sales.won30d,
+        wonPrior30d:          sales.wonPrior30d,
+        tickets7d:            ticketsMap ? (ticketsMap[locationId] ?? null) : null,
+        lastContactCreatedAt: created.at,
+      }
+      const health = computeHealth(signals)
+
+      let row
+      if (allOk) {
         row = {
-          last_contact_update:  dates.contactUpdate,
-          last_contact_created: dates.contactCreated,
-          last_call_date:       dates.callDate,
-          last_sale_date:       dates.saleDate,
-          sync_note:            null,
+          calls_7d:               signals.calls7d,
+          calls_yesterday_in:     signals.callsYesterdayIn,
+          calls_yesterday_out:    signals.callsYesterdayOut,
+          calls_source:           signals.callsSource,
+          last_call_date:         signals.lastCallAt,
+          last_sale_date:         signals.lastSaleAt,
+          won_30d:                signals.won30d,
+          won_prior_30d:          signals.wonPrior30d,
+          tickets_7d:             signals.tickets7d,
+          last_contact_created:   signals.lastContactCreatedAt,
+          meaningful_activity_at: health.meaningfulActivityAt,
+          health_score:           health.score,
+          health_parts:           { platform: health.platform, sales: health.sales, support: health.support, warnings: health.warnings },
+          sync_note:              null,
         }
-      } else if (allOk) {
-        // GHL answered every call successfully and there is simply nothing in this sub-account
-        row = { sync_note: 'GHL returned no contacts, calls or won opportunities for this sub-account' }
       } else {
-        // At least one GHL call failed — keep whatever dates we had, note the failure
         const failed = Object.entries(statuses)
-          .filter(([, tried]) => !tried.some(t => t.status >= 200 && t.status < 300))
-          .map(([k, tried]) => `${k}: HTTP ${tried[tried.length - 1]?.status}`)
+          .filter(([, list]) => !(list[0]?.status >= 200 && list[0]?.status < 300))
+          .map(([k, list]) => `${k}: HTTP ${list[0]?.status}`)
         row = { sync_note: `GHL request failed — ${failed.join(', ')}` }
       }
-      const { error } = await sb.from('ghl_account_stats').upsert({
-        location_id: locationId, ...row, synced_at: new Date().toISOString(),
-      }, { onConflict: 'location_id' })
-      if (error) {
-        upsertError = error.message
-        console.error('[ghl-sync-activity-batch] upsert failed', locationId, error.message)
+
+      let upsertError = null
+      const { error } = await sb.from('ghl_account_stats').upsert(
+        { location_id: locationId, ...row, synced_at: new Date().toISOString() }, { onConflict: 'location_id' })
+      if (error) { upsertError = error.message; console.error('[ghl-sync-activity-batch] upsert failed', locationId, error.message) }
+
+      if (allOk && !upsertError) {
+        const { error: snapErr } = await sb.from('health_score_daily').upsert({
+          location_id: locationId, day, score: health.score,
+          parts: row.health_parts, signals, computed_at: new Date().toISOString(),
+        }, { onConflict: 'location_id,day' })
+        if (snapErr) console.error('[ghl-sync-activity-batch] snapshot failed', locationId, snapErr.message)
       }
 
-      return { locationId, written: hasAny && !upsertError, dates, statuses, upsertError, note: row.sync_note }
+      const out = { locationId, written: allOk && !upsertError, score: health.score, band: health.band, signals, statuses, upsertError, note: row.sync_note }
+      if (debug && idx === 0) out.samples = { conversation: ghlCalls.sample, opportunity: sales.sample }
+      return out
     })
   )
 
   const rows     = results.map(r => (r.status === 'fulfilled' ? r.value : { error: r.reason?.message }))
   const written  = rows.filter(r => r.written).length
   const noToken  = rows.filter(r => r.skipped === 'no_token').length
-  const noData   = rows.filter(r => r.dates && !Object.values(r.dates).some(Boolean)).length
+  const failed   = rows.filter(r => r.note || r.error).length
   const dbErrors = rows.filter(r => r.upsertError).length
   const hasMore  = skip + BATCH_SIZE < total
 
   res.json({
-    synced: written, noToken, noData, dbErrors,
+    synced: written, noToken, failed, dbErrors, freshdesk: ticketsMap ? Object.keys(ticketsMap).length : 0,
     total, hasMore, skip, nextSkip: skip + BATCH_SIZE,
     ...(debug ? { details: rows } : {}),
   })

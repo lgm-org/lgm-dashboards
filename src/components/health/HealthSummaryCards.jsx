@@ -120,7 +120,7 @@ export default function HealthSummaryCards({
         icon="🟢"
         accentColor={G}
         delay={20}
-        infoText={"Rule: last GHL activity ≤ 30 days.\nLast GHL activity = newest of: contact created, contact updated, call, won sale.\nSame set as the 'Active — last 30 days' filter.\n⚠ GHL does not expose logins — this is account activity, not login tracking."}
+        infoText={"Rule: Last Meaningful Activity ≤ 30 days.\nLast Meaningful Activity = most recent of: call, new contact created, won sale (contact updates excluded — automations change contacts).\n⚠ GHL does not expose logins — this is account activity, not login tracking."}
       />
 
       <Card
@@ -142,11 +142,11 @@ export default function HealthSummaryCards({
       <Card
         label="Needs Check-in"
         value={staleCount}
-        sub={`${total ? Math.round(staleCount / total * 100) : 0}% of portfolio · no activity in 30+ days`}
+        sub={`${total ? Math.round(staleCount / total * 100) : 0}% of portfolio · health score below 55`}
         icon="⚠️"
         accentColor={RED}
         delay={60}
-        infoText={"Rule: days since last GHL activity > 30.\nLast GHL activity = newest of contact created, contact updated, call, won sale.\nAccounts with no synced GHL data are never counted here.\nClick to jump to the Needs Attention table."}
+        infoText={"Rule: health score below 55 (the At Risk band) — accounts Customer Success should investigate.\nScore = Platform Activity 45 + Sales Activity 40 + Account Health 15.\nAccounts with no GHL data are never counted here.\nClick to jump to the Needs Attention table."}
         clickable={!!onNeedsCheckinClick}
         onClick={onNeedsCheckinClick}
       />
@@ -159,7 +159,7 @@ export default function HealthSummaryCards({
         suffix="/100"
         accentColor={avgScore >= 70 ? G : avgScore >= 40 ? AMB : RED}
         delay={80}
-        infoText={"Average of every account's health score (0–100).\nScore = days since last GHL activity:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nNo synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive."}
+        infoText={"Average health score across accounts that have GHL data.\nScore (100) = Platform Activity 45 (7-day calls 30 + last call 15) + Sales Activity 40 (last sale 25 + sales in 30 days 15) + Account Health 15 (tickets in 7 days).\nBands: 70+ Healthy · 55–69 Watch · <55 At Risk."}
       />
 
       <Card
@@ -182,7 +182,7 @@ export default function HealthSummaryCards({
             icon="🚨"
             accentColor={RED}
             delay={120}
-            infoText={"Rule (Stripe-matched accounts only): health band is Inactive (score < 40 = no GHL activity in 60+ days) OR Stripe status is past_due.\nRevenue at risk = sum of their monthly Stripe revenue."}
+            infoText={"Rule (Stripe-matched accounts only): health score below 55 (At Risk band) OR Stripe status is past_due.\nRevenue at risk = sum of their monthly Stripe revenue."}
           />
           <Card
             label="Healthy Accounts"
@@ -191,7 +191,7 @@ export default function HealthSummaryCards({
             icon="✅"
             accentColor={G}
             delay={140}
-            infoText={"Rule (Stripe-matched accounts only): health score ≥ 70, which means GHL activity (contact created / updated / call / won sale) within the last 30 days."}
+            infoText={"Rule (Stripe-matched accounts only): health score 70 or higher — strong call volume, recent sales, and no support-ticket spike."}
           />
           <Card
             label="Avg Subscription"

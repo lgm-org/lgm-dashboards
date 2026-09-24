@@ -10,6 +10,7 @@ const RED = '#EF4444'
 function bandColor(band) {
   if (band === 'healthy') return G
   if (band === 'watch')   return AMB
+  if (band === 'no_data') return '#9CA3AF'
   return RED
 }
 
@@ -17,8 +18,9 @@ function HealthPill({ score, band }) {
   const c = bandColor(band)
   return (
     <span className="num inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border"
-      style={{ color: c, background: `${c}12`, borderColor: `${c}28` }}>
-      {score}
+      style={{ color: c, background: `${c}12`, borderColor: `${c}28` }}
+      title={band === 'no_data' ? 'No GHL data for this sub-account — no score' : undefined}>
+      {score ?? '—'}
     </span>
   )
 }
@@ -36,9 +38,25 @@ function ActivityBadge({ days, isAccurate }) {
   return (
     <span className="num inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold border"
       style={{ color, background: `${color}12`, borderColor: `${color}28` }}
-      title={isAccurate ? 'Newest of: contact created · contact updated · last call · last sale (GHL)' : 'LC wallet proxy — GHL data not synced yet for this account'}>
+      title={isAccurate ? 'From GHL' : 'LC wallet proxy — GHL returned no activity for this account'}>
       {label}
       {isAccurate && <span style={{ color: G, fontSize: '8px' }}>●</span>}
+    </span>
+  )
+}
+
+// Numeric signal pill. Normal: higher is better (good/great thresholds). invert: higher is worse (warnAt/badAt).
+function CountBadge({ value, good, great, invert = false, warnAt, badAt }) {
+  if (value === null || value === undefined)
+    return <span className="text-brand-muted text-[10px]">—</span>
+  const n = Number(value)
+  const color = invert
+    ? (n >= badAt ? RED : n >= warnAt ? AMB : G)
+    : (n >= great ? G : n >= good ? AMB : RED)
+  return (
+    <span className="num inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold border"
+      style={{ color, background: `${color}12`, borderColor: `${color}28` }}>
+      {n}
     </span>
   )
 }
@@ -73,12 +91,13 @@ const COLS = [
   { key: 'lcWalletCharges',    label: 'LC Wallet',    sortable: true,  align: 'right',  tip: 'Cumulative LC platform spend from Cliff\'s data: SMS, AI calls, email, voice. All-time total — not monthly.' },
   { key: 'users',              label: 'Billed Users', sortable: true,  align: 'center', tip: 'Rule: Billed Users = Total Users − 1.\nThe first seat on every account is free; every additional seat is billable at $64/mo.\nTotal users is the seat quantity on the Stripe subscription.' },
   { key: '_estGP',             label: 'Est. GP%',     sortable: false, align: 'right',  tip: 'Estimated gross profit %: (Monthly Revenue − Est. Monthly LC Cost) ÷ Revenue. LC cost is estimated from all-time wallet spend ÷ tenure months. Will be exact once Cliff\'s daily LC sync is live.' },
-  { key: 'lastContactCreated', label: 'New Contact',  sortable: true,  align: 'center', tip: 'Days since a contact was last created in this sub-account (GHL contacts, newest dateAdded).\nGreen ≤7d · Amber 8–30d · Red >30d.' },
-  { key: 'lastContactUpdate',  label: 'Contact Upd.', sortable: true,  align: 'center', tip: 'Days since any contact record was last changed in this sub-account (GHL contacts, newest dateUpdated — message, note, tag, pipeline move, field edit).\nGreen ≤7d · Amber 8–30d · Red >30d.' },
-  { key: 'lastCallDate',       label: 'Last Call',    sortable: true,  align: 'center', tip: 'Days since the most recent call conversation in this sub-account (GHL conversations, lastMessageType = call).\nGreen ≤7d · Amber 8–30d · Red >30d.' },
-  { key: 'lastSaleDate',       label: 'Last Sale',    sortable: true,  align: 'center', tip: 'Days since the most recent opportunity was marked Won in this sub-account\'s GHL pipeline.\n⚑ Flag rule: no won sale in more than 10 days (or none recorded) → recommended action.' },
-  { key: 'lastActivity',       label: 'Last Activity', sortable: true, align: 'center', tip: 'The newest of the four signals to the left (contact created / contact updated / call / won sale).\nFalls back to LC wallet charge month only if GHL data is not synced yet.' },
-  { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: 'Each of the four signals is scored by days since it happened:\n≤3d = 100 · ≤7d = 90 · ≤14d = 80 · ≤30d = 70 · ≤60d = 40 · ≤90d = 20 · >90d = 5\nHealth = the highest of the four. No synced data = 50 (neutral).\nBands: 70+ Active · 40–69 Watch · <40 Inactive.' },
+  { key: '_sig:calls7d',       label: '7-Day Calls',  sortable: true,  align: 'center', tip: 'Calls in the last 7 days — the biggest usage signal (actual human behaviour in LG).\nScore (30 pts): 100+ = 30 · 75–99 = 25 · 50–74 = 20 · 25–49 = 12 · 1–24 = 5 · 0 = 0.\nSource: GHL call conversations (call_log once the n8n call webhook has history).' },
+  { key: 'lastCallDate',       label: 'Last Call',    sortable: true,  align: 'center', tip: 'Days since the most recent call in this sub-account.\nScore (15 pts): ≤1d = 15 · 2–3d = 12 · 4–7d = 8 · 8–14d = 4 · 15d+ = 0.' },
+  { key: 'lastSaleDate',       label: 'Last Sale',    sortable: true,  align: 'center', tip: 'Days since the most recent opportunity marked Won in GHL.\nScore (25 pts): ≤7d = 25 · 8–14d = 20 · 15–30d = 12 · 31–60d = 5 · 60d+/none = 0.\n⚑ = no won sale in more than 10 days (or none recorded).' },
+  { key: '_sig:won30d',        label: 'Sales 30d',    sortable: true,  align: 'center', tip: 'Won opportunities in the last 30 days, with the change vs the prior 30 days.\nScore (15 pts): 10+ = 15 · 6–9 = 12 · 3–5 = 9 · 1–2 = 5 · 0 = 0.\nThe trend % is context only — not scored.' },
+  { key: '_sig:tickets7d',     label: 'Tickets 7d',   sortable: true,  align: 'center', tip: 'Freshdesk support tickets created in the last 7 days (Freshdesk company = GHL location id).\nScore (15 pts): 0–1 = 15 · 2 = 12 · 3 = 8 · 4–5 = 4 · 6+ = 0.\nNo Freshdesk company → treated as 0 tickets.' },
+  { key: 'lastActivity',       label: 'Last Meaningful', sortable: true, align: 'center', tip: 'Last Meaningful Activity — days since the most recent of: call · new contact created · won sale.\nContact updates are excluded (automations change contacts).\nFalls back to LC wallet charge month only if GHL returns nothing for the sub-account.' },
+  { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: '100-point score: Platform Activity 45 (7-day calls + last call) · Sales Activity 40 (last sale + sales in 30 days) · Account Health 15 (tickets in 7 days).\nBands: 70+ Healthy · 55–69 Watch · <55 At Risk. — = no GHL data.' },
 ]
 
 const PAGE_SIZE = 25
@@ -116,7 +135,10 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
     return [...accounts].sort((a, b) => {
       let av, bv
       if (sortCol === '_healthScore') {
-        av = a._health?.score ?? 0; bv = b._health?.score ?? 0
+        av = a._health?.score ?? -1; bv = b._health?.score ?? -1
+      } else if (sortCol.startsWith('_sig:')) {
+        const k = sortCol.slice(5)
+        av = a._signals?.[k] ?? -1; bv = b._signals?.[k] ?? -1
       } else if (sortCol === 'lastActivity') {
         av = a.lastActivity ?? 9999; bv = b.lastActivity ?? 9999
       } else if (['totalRev','planPrice','users','lcWalletCharges'].includes(sortCol)) {
@@ -166,12 +188,12 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
               {accounts.length} sub-accounts
               {isAdmin && stripeCount > 0 && <> · <span className="font-medium" style={{ color: G }}>{stripeCount} Stripe</span> · {accounts.length - stripeCount} unmatched</>}
               {isAdmin && lcCount > 0 && <> · <span className="font-medium" style={{ color: '#7c3aed' }}>{lcCount} with LC spend</span></>}
-              {flaggedCount > 0 && <> · <span className="font-medium" style={{ color: AMB }}>⚑ {flaggedCount} flagged (no sale 10+ days)</span></>}
+              {flaggedCount > 0 && <> · <span className="font-medium" style={{ color: AMB }}>⚑ {flaggedCount} with no sale 10+ days</span></>}
               {' '}· click a column to sort · click a row to open details
             </p>
           </div>
           <InfoTip
-            text={"Full client portfolio.\nBilling columns (Status, Total Rev, Plan, Add-ons, Billed Users) come live from Stripe for matched accounts.\nNew Contact / Contact Upd. / Last Call / Last Sale are the four GHL signals behind Last Activity and Health, synced on every dashboard load.\n⚑ Flag rule: no won sale in more than 10 days.\nHover any column header's ? for the exact rule behind it."}
+            text={"Full client portfolio.\nBilling columns (Status, Total Rev, Plan, Add-ons, Billed Users) come live from Stripe for matched accounts.\n7-Day Calls / Last Call / Last Sale / Sales 30d / Tickets 7d are the inputs to the 100-point health score, synced from GHL + Freshdesk on every dashboard load.\n⚑ = no won sale in more than 10 days.\nHover any column header's ? for the exact points behind it."}
             position="top-end"
           />
         </div>
@@ -332,12 +354,9 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                     </td>
                   )}
 
-                  {/* The three GHL signals, broken out (per John) */}
+                  {/* John's signals: 7-day calls · last call · last sale · sales 30d · tickets 7d */}
                   <td className="px-2 py-2 text-center">
-                    <ActivityBadge days={daysSince(a.lastContactCreated)} isAccurate />
-                  </td>
-                  <td className="px-2 py-2 text-center">
-                    <ActivityBadge days={daysSince(a.lastContactUpdate)} isAccurate />
+                    <CountBadge value={a._signals?.hasGhlData ? a._signals.calls7d : null} good={25} great={75} />
                   </td>
                   <td className="px-2 py-2 text-center">
                     <ActivityBadge days={daysSince(a.lastCallDate)} isAccurate />
@@ -347,12 +366,26 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                       <ActivityBadge days={daysSince(a.lastSaleDate)} isAccurate />
                       {isFlagged(a) && (
                         <span className="text-[11px] leading-none" style={{ color: AMB }}
-                          title="Flag rule: no won sale in more than 10 days">⚑</span>
+                          title="No won sale in more than 10 days">⚑</span>
                       )}
                     </span>
                   </td>
+                  <td className="px-2 py-2 text-center whitespace-nowrap">
+                    <CountBadge value={a._signals?.hasGhlData ? a._signals.won30d : null} good={3} great={10} />
+                    {a._signals?.hasGhlData && a._signals.wonPrior30d > 0 && (
+                      <span className="num ml-1 text-[9px] font-semibold"
+                        style={{ color: a._signals.won30d >= a._signals.wonPrior30d ? G : RED }}
+                        title={`Prior 30 days: ${a._signals.wonPrior30d}`}>
+                        {a._signals.won30d >= a._signals.wonPrior30d ? '↑' : '↓'}
+                        {Math.abs(Math.round(((a._signals.won30d - a._signals.wonPrior30d) / a._signals.wonPrior30d) * 100))}%
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-center">
+                    <CountBadge value={a._signals?.hasGhlData ? (a._signals.tickets7d ?? 0) : null} invert warnAt={2} badAt={4} />
+                  </td>
 
-                  {/* Last Activity — newest of the three */}
+                  {/* Last Meaningful Activity — newest of call / new contact / won sale */}
                   <td className="px-2 py-2 text-center">
                     <ActivityBadge
                       days={a.lastActivity}
@@ -362,7 +395,7 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
 
                   {/* Health Score */}
                   <td className="px-2 pr-4 py-2 text-center">
-                    <HealthPill score={a._health?.score ?? 0} band={a._health?.band ?? 'at_risk'} />
+                    <HealthPill score={a._health?.score ?? null} band={a._health?.band ?? 'no_data'} />
                   </td>
                 </tr>
               )
