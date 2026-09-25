@@ -184,7 +184,8 @@ async function callsFromCallLog(sb, locationId, tz) {
 // consistent across accounts, so fine for relative scoring until call_log has history.
 // Pages until the results are older than 7 days (hard ceiling MAX_CALL_PAGES × 100 threads).
 // Deduped by conversation id so a cursor GHL ignores can never double-count.
-const MAX_CALL_PAGES = 20
+// The busiest account seen so far had ~1,950 call threads in a week; 60 pages leaves 3× headroom.
+const MAX_CALL_PAGES = 60
 
 async function callsFromGhl(locationId, token, tz) {
   const seen  = new Map()
