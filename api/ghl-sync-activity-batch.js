@@ -182,26 +182,39 @@ async function callsFromCallLog(sb, locationId, tz) {
 
 // Fallback: GHL conversations whose LAST message is a call. Undercounts multi-call threads;
 // consistent across accounts, so fine for relative scoring until call_log has history.
+// Pages until the results are older than 7 days (hard ceiling MAX_CALL_PAGES × 100 threads).
+// Deduped by conversation id so a cursor GHL ignores can never double-count.
+const MAX_CALL_PAGES = 20
+
 async function callsFromGhl(locationId, token, tz) {
-  const calls = []
-  let statuses = []
+  const seen  = new Map()
+  const statuses = []
   let startAfter = null
-  for (let page = 0; page < 3; page++) {
+  let pages = 0
+  let sample
+  for (let page = 0; page < MAX_CALL_PAGES; page++) {
     const qs = `locationId=${locationId}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=100` +
                (startAfter ? `&startAfterDate=${startAfter}` : '')
     const r = await ghl(`/conversations/search?${qs}`, token)
     statuses.push({ status: r.status, err: r.snippet })
     if (!r.ok) break
+    pages++
     const rows = r.json?.conversations || []
-    // lastCallTimestamp is the actual call time; lastMessageDate can be a later SMS/email in the same thread
-    for (const c of rows) calls.push({ at: toIso(c.lastCallTimestamp || c.lastMessageDate), direction: c.lastMessageDirection || null, raw: page === 0 && calls.length === 0 ? c : undefined })
-    if (rows.length < 100) break
+    let added = 0
+    for (const c of rows) {
+      if (!sample) sample = c
+      if (seen.has(c.id)) continue
+      // lastCallTimestamp is the actual call time; lastMessageDate can be a later SMS/email in the same thread
+      seen.set(c.id, { at: toIso(c.lastCallTimestamp || c.lastMessageDate), direction: c.lastMessageDirection || null })
+      added++
+    }
+    if (rows.length < 100 || added === 0) break
     const oldest = rows[rows.length - 1]?.lastMessageDate
     if (!oldest || Date.now() - new Date(toIso(oldest)).getTime() > 7 * DAY_MS) break
     startAfter = oldest
   }
-  const sample = calls[0]?.raw
-  return { ...summarizeCalls(calls, tz, 'ghl_conversations'), statuses, sample }
+  const capped = pages >= MAX_CALL_PAGES
+  return { ...summarizeCalls([...seen.values()], tz, 'ghl_conversations'), statuses, sample, pages, capped }
 }
 
 function summarizeCalls(calls, tz, source) {
@@ -279,7 +292,11 @@ export default async function handler(req, res) {
   }
 
   const total     = allLocations.length
-  const pageBatch = allLocations.slice(skip, skip + BATCH_SIZE)
+  // ?locationId=X re-syncs a single sub-account (QA / on-demand refresh)
+  const only      = req.query.locationId
+  const pageBatch = only
+    ? allLocations.filter(l => l.id === only)
+    : allLocations.slice(skip, skip + BATCH_SIZE)
   if (pageBatch.length === 0) return res.json({ synced: 0, total, hasMore: false, skip })
 
   const [companyToken, ticketsMap] = await Promise.all([getCompanyToken(), freshdeskTickets7d()])
@@ -359,7 +376,7 @@ export default async function handler(req, res) {
         if (snapErr) console.error('[ghl-sync-activity-batch] snapshot failed', locationId, snapErr.message)
       }
 
-      const out = { locationId, written: allOk && !upsertError, score: health.score, band: health.band, signals, statuses, upsertError, note: row.sync_note }
+      const out = { locationId, written: allOk && !upsertError, score: health.score, band: health.band, signals, statuses, upsertError, note: row.sync_note, callPages: ghlCalls.pages, callPagesCapped: ghlCalls.capped }
       if (debug && idx === 0) out.samples = { conversation: ghlCalls.sample, opportunity: sales.sample }
       return out
     })
@@ -370,7 +387,7 @@ export default async function handler(req, res) {
   const noToken  = rows.filter(r => r.skipped === 'no_token').length
   const failed   = rows.filter(r => r.note || r.error).length
   const dbErrors = rows.filter(r => r.upsertError).length
-  const hasMore  = skip + BATCH_SIZE < total
+  const hasMore  = !only && skip + BATCH_SIZE < total
 
   res.json({
     synced: written, noToken, failed, dbErrors, freshdesk: ticketsMap ? Object.keys(ticketsMap).length : 0,
