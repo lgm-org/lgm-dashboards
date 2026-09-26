@@ -100,7 +100,7 @@ function ErrorBanner({ message, onRetry }) {
 
 export default function HealthDashboard({ filters, setFilters }) {
   const { isAdmin }             = useRole()
-  const { accounts: raw, loading, stripeLoading, error, lastUpdated, refetch } = useMergedHealthData()
+  const { accounts: raw, loading, stripeLoading, error, lastUpdated, refetch, activityStats } = useMergedHealthData()
   const { statuses, setStatus } = useAccountStatus()
   const { dmMap, dmLoaded }     = useDmAgentMap()
   const [selectedAccount, setSelectedAccount] = useState(null)
@@ -187,14 +187,19 @@ export default function HealthDashboard({ filters, setFilters }) {
   }
 
   useEffect(() => {
-    // Auto-sync once per session, 3 seconds after initial data loads
+    // Auto-sync once per session, 3 seconds after initial data loads — but only when the
+    // cached signals are older than 30 minutes. Every open dashboard used to kick off a full
+    // 318-account sync, which piles hundreds of writes onto Supabase for no new information.
+    if (!activityStats.loaded) return
+    const ageMs = activityStats.latestSyncedAt ? Date.now() - new Date(activityStats.latestSyncedAt).getTime() : Infinity
+    if (ageMs < 30 * 60 * 1000) return
     const timer = setTimeout(() => {
       if (raw.length > 0 && !activitySyncing && !activitySyncDone) {
         syncActivityData()
       }
     }, 3000)
     return () => clearTimeout(timer)
-  }, [raw.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [raw.length, activityStats.loaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') setSelectedAccount(null) }
@@ -492,6 +497,16 @@ export default function HealthDashboard({ filters, setFilters }) {
           <RefreshIcon spinning={activitySyncing} />
           <span>{activitySyncing ? 'Syncing activity…' : activitySyncDone ? 'Activity synced ✓' : 'Sync Activity'}</span>
         </button>
+        {activityStats.loaded && activityStats.error && (
+          <div className="text-[11px] px-3 py-1.5 rounded-lg border"
+            style={activityStats.count === 0
+              ? { color: '#991b1b', background: '#fef2f2', borderColor: '#fecaca' }
+              : { color: '#92400e', background: '#fffbeb', borderColor: '#fde68a' }}>
+            {activityStats.count === 0
+              ? `⚠ Health signals unavailable — Supabase not responding (${activityStats.error}). Scores, bands and filters are paused until it recovers; retrying every minute.`
+              : `⚠ Supabase not responding (${activityStats.error}) — showing cached health signals from ${activityStats.latestSyncedAt ? timeAgo(activityStats.latestSyncedAt) : 'earlier'}.`}
+          </div>
+        )}
         {error && raw.length > 0 && (
           <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
             ⚠ Auto-refresh failed — showing last known data

@@ -222,7 +222,7 @@ export function useMergedHealthData() {
   const cliff  = useCliffSheet()
   const calls  = useCallData()
   const { byLocationId: lcBulk, latestMonthById: lcMonths } = useLcChargesBulk()
-  const { statsMap } = useGhlAccountStats()
+  const { statsMap, statsLoaded, statsError, latestSyncedAt, reloadStats } = useGhlAccountStats()
 
   const accounts = (ghl.accounts || [])
     .filter(g => !EXCLUDED_NAMES.has((g.ghlName || '').toLowerCase().trim()))
@@ -391,6 +391,14 @@ export function useMergedHealthData() {
     stripeError:  stripe.error,
     lastUpdated:  ghl.syncedAt,
     refetch:      ghl.refetch,
+    // Health-signal cache (Supabase ghl_account_stats) — drives scores, bands and Last Meaningful Activity
+    activityStats: {
+      loaded:         statsLoaded,
+      error:          statsError,
+      count:          Object.keys(statsMap).length,
+      latestSyncedAt,
+      reload:         reloadStats,
+    },
     retrying:     false,
     dataSourceStatus,
   }
