@@ -17,7 +17,7 @@
     },
     {
       "path": "/api/cron-refresh-master-cache",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/30 * * * *"
     }
   ]
 }

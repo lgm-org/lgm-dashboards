@@ -17,7 +17,10 @@
 
 import { getLocationAccessToken } from './_ghlAuth.js'
 import { kv } from './_supabase.js'
-import { loadRaw, buildLeads, cacheKey, touchKnownLocations, CACHE_TTL_MS } from './_masterLeadsCore.js'
+import {
+  loadRaw, buildLeads, cacheKey, touchKnownLocations, CACHE_TTL_MS,
+  getCacheMeta, cacheIsFresh, saveCacheIfChanged, acquireRefreshLock, releaseRefreshLock,
+} from './_masterLeadsCore.js'
 
 // GHL location IDs are 20-char alphanumeric (e.g. EsfaSslc9A9wO3hXkJNj). A
 // 24-char lowercase-hex value is a Mongo ObjectId from somewhere else in the
@@ -104,18 +107,28 @@ export default async function handler(req, res) {
     await touchKnownLocations(locationId)
 
     let raw = forceRefresh ? null : await kv.get(cacheKey(locationId))
-    const isFresh = raw && (Date.now() - new Date(raw.fetchedAt).getTime() < CACHE_TTL_MS)
+    const meta    = await getCacheMeta(locationId)
+    const isFresh = !forceRefresh && raw && cacheIsFresh(raw, meta)
 
     if (!isFresh) {
-      try {
-        raw = await loadRaw(token, locationId)
-        await kv.set(cacheKey(locationId), raw)
-      } catch (err) {
-        // Live pull failed even with a token in hand (rate limit, GHL 5xx,
-        // etc) — same fallback: serve what's cached rather than erroring if
-        // we have anything at all, even the just-failed isFresh===false copy.
-        if (raw) { stale = true; staleReason = err.message }
-        else throw err
+      // If the cron (or another request) is refreshing this location right now, don't start a
+      // second identical pull — serve the cached copy and mark it stale.
+      if (!(await acquireRefreshLock(locationId))) {
+        if (raw) { stale = true; staleReason = 'refresh already in progress' }
+        else throw new Error('Cache is being built for this location — try again in a minute')
+      } else {
+        try {
+          raw = await loadRaw(token, locationId)
+          await saveCacheIfChanged(locationId, raw, meta)
+        } catch (err) {
+          // Live pull failed even with a token in hand (rate limit, GHL 5xx,
+          // etc) — same fallback: serve what's cached rather than erroring if
+          // we have anything at all, even the just-failed isFresh===false copy.
+          if (raw) { stale = true; staleReason = err.message }
+          else throw err
+        } finally {
+          await releaseRefreshLock(locationId)
+        }
       }
     }
 

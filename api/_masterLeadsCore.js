@@ -25,7 +25,7 @@ const OPPS_MAX_PAGES = 100
 // How long a cached pull is considered fresh before the next request triggers
 // a live re-fetch. The cron (every 15 min) keeps this warm in the background
 // so an interactive user should rarely be the one paying for a cold cache.
-export const CACHE_TTL_MS = 20 * 60 * 1000
+export const CACHE_TTL_MS = 30 * 60 * 1000
 
 // Cached raw pull covers this many days back regardless of what date range is
 // requested — wide enough to cover every preset the UI offers (today through
@@ -41,6 +41,81 @@ export async function touchKnownLocations(locationId) {
   if (!list.includes(locationId)) {
     await kv.set(KNOWN_LOCATIONS_KEY, [...list, locationId])
   }
+}
+
+// ── Cache write discipline ────────────────────────────────────────────────────
+// The raw cache for one location is 10–90 MB. Rewriting it every refresh — from two Vercel
+// projects at once — put ~54 GB/day of uploads onto Supabase and preceded the 2026-09-26
+// outage. Three rules now apply to every writer (cron and on-demand):
+//   1. A small meta row (hash + timestamps) is checked first; unchanged content is NOT rewritten,
+//      only meta.checkedAt is bumped so freshness still advances.
+//   2. A per-location lock (5 min, compare-and-set) so overlapping refreshes collapse into one.
+//   3. Freshness = time since the last *check*, not the last write.
+import { createHash } from 'node:crypto'
+import { createClient } from '@supabase/supabase-js'
+
+export function metaKey(locationId) { return `master_cache_meta:${locationId}` }
+export function lockKey(locationId) { return `master_cache_lock:${locationId}` }
+const LOCK_TTL_MS = 5 * 60 * 1000
+
+export function contentHash(raw) {
+  const { fetchedAt, ...rest } = raw || {}
+  return createHash('sha256').update(JSON.stringify(rest)).digest('hex').slice(0, 32)
+}
+
+export async function getCacheMeta(locationId) {
+  return (await kv.get(metaKey(locationId))) || null
+}
+
+// True when the cache was checked/written within CACHE_TTL_MS
+export function cacheIsFresh(raw, meta) {
+  const last = Math.max(
+    raw?.fetchedAt   ? new Date(raw.fetchedAt).getTime()   : 0,
+    meta?.checkedAt  ? new Date(meta.checkedAt).getTime()  : 0,
+  )
+  return last > 0 && Date.now() - last < CACHE_TTL_MS
+}
+
+// Writes the big cache row only if its content changed. Returns { written, hash }.
+export async function saveCacheIfChanged(locationId, raw, meta = null) {
+  const hash = contentHash(raw)
+  const now  = new Date().toISOString()
+  const prev = meta ?? await getCacheMeta(locationId)
+  if (prev?.hash === hash) {
+    await kv.set(metaKey(locationId), { ...prev, checkedAt: now })
+    return { written: false, hash }
+  }
+  await kv.set(cacheKey(locationId), raw)
+  await kv.set(metaKey(locationId), { hash, fetchedAt: raw.fetchedAt || now, checkedAt: now })
+  return { written: true, hash }
+}
+
+const sb = () => createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+
+export async function acquireRefreshLock(locationId) {
+  const db  = sb()
+  const key = lockKey(locationId)
+  const now = new Date()
+  const until = new Date(now.getTime() + LOCK_TTL_MS).toISOString()
+  const { data: row } = await db.from('ghl_tokens').select('value, updated_at').eq('key', key).maybeSingle()
+  if (!row) {
+    const { error } = await db.from('ghl_tokens').insert({ key, value: { until }, updated_at: now.toISOString() })
+    return !error
+  }
+  if (row.value?.until && row.value.until > now.toISOString()) return false
+  const { data } = await db.from('ghl_tokens')
+    .update({ value: { until }, updated_at: now.toISOString() })
+    .eq('key', key).eq('updated_at', row.updated_at)
+    .select('key')
+  return !!data?.length
+}
+
+export async function releaseRefreshLock(locationId) {
+  try {
+    await sb().from('ghl_tokens')
+      .update({ value: { until: new Date(0).toISOString() }, updated_at: new Date().toISOString() })
+      .eq('key', lockKey(locationId))
+  } catch {}
 }
 
 export const FIELD_TARGETS = {

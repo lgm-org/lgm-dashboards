@@ -304,13 +304,34 @@ export default async function handler(req, res) {
   const sb  = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
   const day = new Date().toISOString().slice(0, 10)
 
+  // Read what is already stored for this page so unchanged accounts cost zero writes.
+  // (Two reads per page instead of up to 40 upserts — most accounts don't change between syncs.)
+  const ids = pageBatch.map(l => l.id)
+  const STAT_COLS = 'location_id,calls_7d,calls_yesterday_in,calls_yesterday_out,calls_source,last_call_date,last_sale_date,won_30d,won_prior_30d,tickets_7d,last_contact_created,meaningful_activity_at,health_score,sync_note'
+  const [{ data: existingRows }, { data: snapRows }] = await Promise.all([
+    sb.from('ghl_account_stats').select(STAT_COLS).in('location_id', ids),
+    sb.from('health_score_daily').select('location_id,score').eq('day', day).in('location_id', ids),
+  ])
+  const existing  = Object.fromEntries((existingRows || []).map(r => [r.location_id, r]))
+  const snapToday = Object.fromEntries((snapRows || []).map(r => [r.location_id, r.score]))
+  const norm = (v) => {
+    if (v === undefined || v === null || v === '') return null
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) { const t = new Date(v).getTime(); return isNaN(t) ? v : t }
+    return v
+  }
+  const sameRow = (a, b) => a && b && Object.keys(b).every(k => norm(a[k]) === norm(b[k]))
+
   const results = await Promise.allSettled(
     pageBatch.map(async ({ id: locationId, tz }, idx) => {
       const { token, reason } = await getLocationToken(locationId, companyToken)
       if (!token) {
-        await sb.from('ghl_account_stats').upsert({
-          location_id: locationId, sync_note: reason, health_score: null, health_parts: null, synced_at: new Date().toISOString(),
-        }, { onConflict: 'location_id' })
+        // Record GHL's reason (e.g. "Location is not active") — only when it changed
+        const prev = existing[locationId]
+        if (!prev || prev.sync_note !== reason || prev.health_score !== null) {
+          await sb.from('ghl_account_stats').upsert({
+            location_id: locationId, sync_note: reason, health_score: null, health_parts: null, synced_at: new Date().toISOString(),
+          }, { onConflict: 'location_id' })
+        }
         return { locationId, skipped: 'no_token', reason }
       }
 
@@ -365,11 +386,16 @@ export default async function handler(req, res) {
       }
 
       let upsertError = null
-      const { error } = await sb.from('ghl_account_stats').upsert(
-        { location_id: locationId, ...row, synced_at: new Date().toISOString() }, { onConflict: 'location_id' })
-      if (error) { upsertError = error.message; console.error('[ghl-sync-activity-batch] upsert failed', locationId, error.message) }
+      const { health_parts: _hp, ...comparable } = row
+      const unchanged = sameRow(existing[locationId], comparable)
+      if (!unchanged) {
+        const { error } = await sb.from('ghl_account_stats').upsert(
+          { location_id: locationId, ...row, synced_at: new Date().toISOString() }, { onConflict: 'location_id' })
+        if (error) { upsertError = error.message; console.error('[ghl-sync-activity-batch] upsert failed', locationId, error.message) }
+      }
 
-      if (allOk && !upsertError) {
+      // One snapshot per account per day; rewrite only if today's stored score differs
+      if (allOk && !upsertError && snapToday[locationId] !== health.score) {
         const { error: snapErr } = await sb.from('health_score_daily').upsert({
           location_id: locationId, day, score: health.score,
           parts: row.health_parts, signals, computed_at: new Date().toISOString(),
@@ -377,21 +403,22 @@ export default async function handler(req, res) {
         if (snapErr) console.error('[ghl-sync-activity-batch] snapshot failed', locationId, snapErr.message)
       }
 
-      const out = { locationId, written: allOk && !upsertError, score: health.score, band: health.band, signals, statuses, upsertError, note: row.sync_note, callPages: ghlCalls.pages, callPagesCapped: ghlCalls.capped }
+      const out = { locationId, written: allOk && !upsertError, unchanged, score: health.score, band: health.band, signals, statuses, upsertError, note: row.sync_note, callPages: ghlCalls.pages, callPagesCapped: ghlCalls.capped }
       if (debug && idx === 0) out.samples = { conversation: ghlCalls.sample, opportunity: sales.sample }
       return out
     })
   )
 
-  const rows     = results.map(r => (r.status === 'fulfilled' ? r.value : { error: r.reason?.message }))
-  const written  = rows.filter(r => r.written).length
+  const rows      = results.map(r => (r.status === 'fulfilled' ? r.value : { error: r.reason?.message }))
+  const written   = rows.filter(r => r.written).length
+  const unchanged = rows.filter(r => r.unchanged).length
   const noToken  = rows.filter(r => r.skipped === 'no_token').length
   const failed   = rows.filter(r => r.note || r.error).length
   const dbErrors = rows.filter(r => r.upsertError).length
   const hasMore  = !only && skip + BATCH_SIZE < total
 
   res.json({
-    synced: written, noToken, failed, dbErrors, freshdesk: ticketsMap ? Object.keys(ticketsMap).length : 0,
+    synced: written, unchanged, noToken, failed, dbErrors, freshdesk: ticketsMap ? Object.keys(ticketsMap).length : 0,
     total, hasMore, skip, nextSkip: skip + BATCH_SIZE,
     ...(debug ? { details: rows } : {}),
   })
