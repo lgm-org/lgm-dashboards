@@ -605,19 +605,13 @@ export default function HealthDashboard({ filters, setFilters }) {
         isAdmin={isAdmin}
       />
 
-      {/* 2. Cohort churn — admin only */}
-      {isAdmin ? (
-        <ChurnMetrics
-          metrics={churnMetrics.windows}
-          scheduledToCancel={churnMetrics.scheduledToCancel}
-          stripeLoading={stripeLoading}
-          onAccountClick={setSelectedAccount}
-        />
-      ) : (
-        <div className="rounded-xl border border-dashed border-brand-border bg-white px-4 py-3 text-[11px] text-brand-muted">
-          Cancel / churn metrics, billing and upsell sections are visible to <strong>admin</strong> sign-ins only. You are signed in as an account manager — sign out and sign back in with an admin Google account to see them.
-        </div>
-      )}
+      {/* 2. Cohort churn — visible to every role (per John, 2026-09-28) */}
+      <ChurnMetrics
+        metrics={churnMetrics.windows}
+        scheduledToCancel={churnMetrics.scheduledToCancel}
+        stripeLoading={stripeLoading}
+        onAccountClick={setSelectedAccount}
+      />
 
       {/* 4. Quick Wins — stale, upsell, newest */}
       <QuickWins
