@@ -61,7 +61,7 @@ export default async function handler(req, res) {
       return res.redirect(302, '/?login=1&error=domain_not_allowed')
     }
 
-    const role  = ADMIN_EMAILS.has(email) ? 'admin' : 'account_manager'
+    const role  = ADMIN_EMAILS.has(String(email || '').toLowerCase().trim()) ? 'admin' : 'account_manager'
     const token = makeToken(email, role, sessionSecret)
     res.setHeader('Set-Cookie', `${COOKIE}=${token}; Path=/; Max-Age=${ONE_YEAR}; SameSite=Lax; Secure`)
     return res.redirect(302, '/')

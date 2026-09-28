@@ -59,7 +59,7 @@ function LogoMark() {
 }
 
 function DashboardShell({ onSignOut }) {
-  const { isAdmin } = useContext(RoleContext)
+  const { isAdmin, role } = useContext(RoleContext)
   const [activeTab, setActiveTab] = useState('health')
   const [healthFilters, setHealthFilters] = useState({
     search: '', typeFilter: 'all', bandFilter: 'all', billingFilter: 'all',
@@ -93,12 +93,23 @@ function DashboardShell({ onSignOut }) {
               </button>
             ))}
           </div>
-          <button
-            onClick={onSignOut}
-            className="text-[11px] text-brand-muted hover:text-brand-heading transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-bg border border-transparent hover:border-brand-border"
-          >
-            Sign out
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span
+              className="text-[10px] font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap"
+              title={isAdmin ? 'Admin — billing, churn and upsell sections visible' : 'Account manager — billing, churn and upsell sections hidden'}
+              style={isAdmin
+                ? { color: '#3a6b10', background: '#8CC63F15', borderColor: '#8CC63F40' }
+                : { color: '#6B7280', background: '#F4F6F4', borderColor: '#E5E7E5' }}
+            >
+              {isAdmin ? 'Admin' : 'Account manager'}
+            </span>
+            <button
+              onClick={onSignOut}
+              className="text-[11px] text-brand-muted hover:text-brand-heading transition-colors px-3 py-1.5 rounded-lg hover:bg-brand-bg border border-transparent hover:border-brand-border"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 

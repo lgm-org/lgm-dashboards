@@ -194,7 +194,7 @@ export default function ChurnMetrics({ metrics = [], scheduledToCancel = [], str
             Of clients who <strong>signed up</strong> in each window — how many have since cancelled
           </p>
         </div>
-        <div className="text-[10px] text-red-400 text-right leading-relaxed">
+        <div className="text-[10px] text-red-400 sm:text-right leading-relaxed">
           <p className="font-semibold text-red-500">John's formula</p>
           <p>Cohort denominator = new signups in that window</p>
           <p>Cancels from OTHER cohorts excluded from numerator</p>
@@ -202,7 +202,7 @@ export default function ChurnMetrics({ metrics = [], scheduledToCancel = [], str
       </div>
 
       {/* ── 3 rate cards ── */}
-      <div className="grid grid-cols-3 divide-x divide-brand-border">
+      <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-brand-border">
         {metrics.map(m => (
           <CohortCard
             key={m.days}
