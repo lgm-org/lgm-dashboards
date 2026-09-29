@@ -104,6 +104,16 @@ export default function HealthDashboard({ filters, setFilters }) {
   const { statuses, setStatus } = useAccountStatus()
   const { dmMap, dmLoaded }     = useDmAgentMap()
   const [selectedAccount, setSelectedAccount] = useState(null)
+  // Deep link from the daily briefing emails: /?account=<ghlLocationId> opens that account's modal once data is loaded
+  const deepLinkHandled = useRef(false)
+  useEffect(() => {
+    if (deepLinkHandled.current || !raw?.length) return
+    const id = new URLSearchParams(window.location.search).get('account')
+    if (!id) { deepLinkHandled.current = true; return }
+    const match = raw.find(a => a.ghlId === id || a.id === id)
+    if (match) setSelectedAccount(match)
+    deepLinkHandled.current = true
+  }, [raw])
   const [activeSubTab, setActiveSubTab]       = useState('overview')
   const [elapsed, setElapsed] = useState('—')
   const [stripeElapsed, setStripeElapsed] = useState(0)

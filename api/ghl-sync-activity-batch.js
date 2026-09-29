@@ -266,14 +266,13 @@ async function lastContactCreated(locationId, token) {
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
-export default async function handler(req, res) {
-  res.setHeader('Cache-Control', 'no-store')
-
+// Shared by the HTTP handler below and api/cron-health-sync.js (the briefing pre-sync).
+// Returns { status, body } — the handler serialises it, the cron loops over nextSkip.
+export async function runSync({ skip = 0, only = null, debug = false } = {}) {
   const agencyKey = process.env.GHL_AGENCY_API_KEY
-  if (!agencyKey) return res.status(500).json({ error: 'GHL_AGENCY_API_KEY not configured' })
+  if (!agencyKey) return { status: 500, body: { error: 'GHL_AGENCY_API_KEY not configured' } }
 
-  const skip  = parseInt(req.query.skip || '0', 10)
-  const debug = req.query.debug === '1'
+  skip = parseInt(skip || 0, 10)
 
   let allLocations = []
   try {
@@ -289,16 +288,15 @@ export default async function handler(req, res) {
       s += 100
     }
   } catch (err) {
-    return res.status(500).json({ error: `Failed to load locations: ${err.message}` })
+    return { status: 500, body: { error: `Failed to load locations: ${err.message}` } }
   }
 
   const total     = allLocations.length
-  // ?locationId=X re-syncs a single sub-account (QA / on-demand refresh)
-  const only      = req.query.locationId
+  // only=X re-syncs a single sub-account (QA / on-demand refresh)
   const pageBatch = only
     ? allLocations.filter(l => l.id === only)
     : allLocations.slice(skip, skip + BATCH_SIZE)
-  if (pageBatch.length === 0) return res.json({ synced: 0, total, hasMore: false, skip })
+  if (pageBatch.length === 0) return { status: 200, body: { synced: 0, total, hasMore: false, skip } }
 
   const [companyToken, ticketsMap] = await Promise.all([getCompanyToken(), freshdeskTickets7d()])
   const sb  = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
@@ -417,9 +415,19 @@ export default async function handler(req, res) {
   const dbErrors = rows.filter(r => r.upsertError).length
   const hasMore  = !only && skip + BATCH_SIZE < total
 
-  res.json({
+  return { status: 200, body: {
     synced: written, unchanged, noToken, failed, dbErrors, freshdesk: ticketsMap ? Object.keys(ticketsMap).length : 0,
     total, hasMore, skip, nextSkip: skip + BATCH_SIZE,
     ...(debug ? { details: rows } : {}),
+  } }
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store')
+  const { status, body } = await runSync({
+    skip:  req.query.skip || 0,
+    only:  req.query.locationId || null,
+    debug: req.query.debug === '1',
   })
+  res.status(status).json(body)
 }

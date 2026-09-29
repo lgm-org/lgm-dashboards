@@ -8,6 +8,15 @@
     },
     "api/field-audit.js": {
       "maxDuration": 300
+    },
+    "api/cron-daily-briefing.js": {
+      "maxDuration": 300
+    },
+    "api/cron-health-sync.js": {
+      "maxDuration": 300
+    },
+    "api/briefing.js": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -18,6 +27,14 @@
     {
       "path": "/api/cron-refresh-master-cache",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron-health-sync",
+      "schedule": "*/10 9-10 * * 1-5"
+    },
+    {
+      "path": "/api/cron-daily-briefing",
+      "schedule": "15 11 * * 1-5"
     }
   ]
 }

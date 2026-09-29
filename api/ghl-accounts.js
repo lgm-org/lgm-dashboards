@@ -18,13 +18,9 @@ async function ghlGet(path, key) {
   return res.json()
 }
 
-export default async function handler(req, res) {
-  const key = process.env.GHL_AGENCY_API_KEY
-  if (!key) {
-    return res.status(500).json({ error: 'GHL_AGENCY_API_KEY env var not configured in Vercel' })
-  }
-
-  try {
+// Shared by the HTTP handler below and the daily briefing job (api/_briefingSources.js).
+// Returns the same payload the endpoint serves.
+export async function fetchGhlAccounts(key) {
     // Page through all locations (GHL returns max 100 per request)
     let all = [], skip = 0
     while (true) {
@@ -105,9 +101,20 @@ export default async function handler(req, res) {
       }
     })
 
+    return { accounts, total: accounts.length, rawTotal: all.length, syncedAt: now.toISOString() }
+}
+
+export default async function handler(req, res) {
+  const key = process.env.GHL_AGENCY_API_KEY
+  if (!key) {
+    return res.status(500).json({ error: 'GHL_AGENCY_API_KEY env var not configured in Vercel' })
+  }
+
+  try {
+    const payload = await fetchGhlAccounts(key)
     // Cache at Vercel edge for 5 minutes, serve stale for up to 1 hour — reduces serverless invocations
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=3600')
-    res.json({ accounts, total: accounts.length, rawTotal: all.length, syncedAt: now.toISOString() })
+    res.json(payload)
   } catch (err) {
     console.error('GHL accounts fetch error:', err.message)
     res.status(500).json({ error: err.message })

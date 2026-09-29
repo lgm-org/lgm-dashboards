@@ -7,7 +7,7 @@
 const STRIPE_BASE = 'https://api.stripe.com/v1'
 
 // Normalize company name for fuzzy matching — must mirror useMergedHealthData.js exactly
-function normalizeName(n) {
+export function normalizeName(n) {
   return (n || '')
     .toLowerCase()
     .replace(/'s\b/g, '')
@@ -18,7 +18,7 @@ function normalizeName(n) {
 }
 
 // Normalize phone to 10 digits (strip country code if present)
-function normalizePhone(p) {
+export function normalizePhone(p) {
   const d = (p || '').replace(/\D/g, '')
   return d.length === 11 && d[0] === '1' ? d.slice(1) : d
 }
@@ -86,13 +86,8 @@ async function fetchOpenInvoiceCustomerIds(key) {
 // Priority used when a customer has multiple subscriptions — prefer active over trialing
 const STATUS_PRIORITY = { active: 0, trialing: 1, past_due: 2, unpaid: 2, paused: 3, canceled: 4 }
 
-export default async function handler(req, res) {
-  const key = process.env.STRIPE_SECRET_KEY
-  if (!key) {
-    return res.status(500).json({ error: 'STRIPE_SECRET_KEY env var not configured in Vercel' })
-  }
-
-  try {
+// Shared by the HTTP handler below and the daily briefing job (api/_briefingSources.js).
+export async function buildStripeBilling(key) {
     const [allSubs, openInvoiceCustomerIds] = await Promise.all([
       fetchAllSubscriptions(key),
       fetchOpenInvoiceCustomerIds(key),
@@ -324,9 +319,7 @@ export default async function handler(req, res) {
     for (const p of phoneDupes)   delete byPhone[p]
     for (const n of nameDupes)    delete byNormName[n]
 
-    // Stripe billing data changes infrequently — cache at edge for 10 min, serve stale up to 1 hour
-    res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=3600')
-    return res.json({
+    return {
       byEmail,
       byPhone,
       byNormName,
@@ -335,7 +328,20 @@ export default async function handler(req, res) {
       count:     Object.keys(byEmail).length,
       totalSubs: allSubs.length,
       syncedAt:  new Date().toISOString(),
-    })
+    }
+}
+
+export default async function handler(req, res) {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) {
+    return res.status(500).json({ error: 'STRIPE_SECRET_KEY env var not configured in Vercel' })
+  }
+
+  try {
+    const payload = await buildStripeBilling(key)
+    // Stripe billing data changes infrequently — cache at edge for 10 min, serve stale up to 1 hour
+    res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=3600')
+    return res.json(payload)
   } catch (err) {
     console.error('[stripe-billing]', err.message)
     return res.status(500).json({ error: err.message })
