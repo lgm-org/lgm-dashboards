@@ -3,6 +3,10 @@
 // role sections (AI) → raw data tables (deterministic) → footer with data notes.
 // Table-based, inline-styled HTML so it renders in Gmail/Outlook.
 
+// Hosted logo (the wordmark is part of the image — never write the company name as text beside it).
+// health.littlegiantmarketing.com challenges non-browser fetches, so default to the Goals domain which serves it plainly.
+const LOGO_URL = process.env.BRIEFING_LOGO_URL || 'https://goals.littlegiantmarketing.com/lgm-logo.png'
+
 const C = { green: '#8CC63F', orange: '#FF6112', heading: '#4A4A4A', bg: '#F4F6F4', text: '#1A1A1A', muted: '#6B7280', border: '#E5E7E5', red: '#EF4444', yellow: '#EAB308' }
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
@@ -185,8 +189,11 @@ export function render(role, facts, analysis) {
 <body style="margin:0;padding:0;background:${C.bg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.bg}"><tr><td align="center" style="padding:16px 8px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:720px;background:#fff;border-radius:16px;border:1px solid ${C.border};overflow:hidden">
-  <tr><td style="background:${C.green};padding:18px 24px">
-    <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#fff;opacity:.9">Little Giant Marketing · Daily briefing</div>
+  <tr><td style="background:#fff;padding:16px 24px 12px;border-bottom:1px solid ${C.border}">
+    <img src="${esc(LOGO_URL)}" alt="Little Giant Marketing" width="150" height="40" style="display:block;width:150px;height:40px;border:0">
+  </td></tr>
+  <tr><td style="background:${C.green};padding:16px 24px">
+    <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#fff;opacity:.9">Daily briefing</div>
     <div style="font-size:22px;font-weight:700;color:#fff;margin-top:4px">${esc(SUBJECTS[role])}</div>
     <div style="font-size:13px;color:#fff;opacity:.9;margin-top:2px">${esc(dateLabel)}${isWeek(facts) ? ` · Monday edition: covers ${esc(facts.period.label)}` : ''}</div>
   </td></tr>
