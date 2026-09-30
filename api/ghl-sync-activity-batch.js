@@ -259,6 +259,13 @@ async function wonSales(locationId, token) {
   return { lastSaleAt, won30d, wonPrior30d, statuses, sample: opps[0] }
 }
 
+// Number of users in the sub-account (team members) — the real "total users", unlike Stripe seats
+async function ghlUserCount(locationId, token) {
+  const r = await ghl(`/users/?locationId=${locationId}`, token)
+  const n = Array.isArray(r.json?.users) ? r.json.users.length : null
+  return { count: r.ok ? n : null, statuses: [{ status: r.status, err: r.snippet }] }
+}
+
 async function lastContactCreated(locationId, token) {
   const r = await ghl('/contacts/search', token, 'POST', { locationId, pageLimit: 1, sort: [{ field: 'dateAdded', direction: 'desc' }] })
   return { at: r.ok ? toIso(r.json?.contacts?.[0]?.dateAdded) : null, statuses: [{ status: r.status, err: r.snippet }] }
@@ -305,7 +312,7 @@ export async function runSync({ skip = 0, only = null, debug = false } = {}) {
   // Read what is already stored for this page so unchanged accounts cost zero writes.
   // (Two reads per page instead of up to 40 upserts — most accounts don't change between syncs.)
   const ids = pageBatch.map(l => l.id)
-  const STAT_COLS = 'location_id,calls_7d,calls_yesterday_in,calls_yesterday_out,calls_source,last_call_date,last_sale_date,won_30d,won_prior_30d,tickets_7d,last_contact_created,meaningful_activity_at,health_score,sync_note'
+  const STAT_COLS = 'location_id,calls_7d,calls_yesterday_in,calls_yesterday_out,calls_source,last_call_date,last_sale_date,won_30d,won_prior_30d,tickets_7d,last_contact_created,active_users,meaningful_activity_at,health_score,sync_note'
   const [{ data: existingRows }, { data: snapRows }] = await Promise.all([
     sb.from('ghl_account_stats').select(STAT_COLS).in('location_id', ids),
     sb.from('health_score_daily').select('location_id,score').eq('day', day).in('location_id', ids),
@@ -333,13 +340,15 @@ export async function runSync({ skip = 0, only = null, debug = false } = {}) {
         return { locationId, skipped: 'no_token', reason }
       }
 
-      const [logCalls, ghlCalls, sales, created] = await Promise.all([
+      const [logCalls, ghlCalls, sales, created, users] = await Promise.all([
         callsFromCallLog(sb, locationId, tz),
         callsFromGhl(locationId, token, tz),
         wonSales(locationId, token),
         lastContactCreated(locationId, token),
+        ghlUserCount(locationId, token),
       ])
       const calls = logCalls || ghlCalls
+      // users is informational — a failed users call must not mark the whole account as failed
       const statuses = { calls: ghlCalls.statuses, sales: sales.statuses, contactCreated: created.statuses }
       const allOk = Object.values(statuses).every(list => list.length && list[0].status >= 200 && list[0].status < 300)
 
@@ -371,6 +380,7 @@ export async function runSync({ skip = 0, only = null, debug = false } = {}) {
           won_prior_30d:          signals.wonPrior30d,
           tickets_7d:             signals.tickets7d,
           last_contact_created:   signals.lastContactCreatedAt,
+          active_users:           users.count,
           meaningful_activity_at: health.meaningfulActivityAt,
           health_score:           health.score,
           health_parts:           { platform: health.platform, sales: health.sales, support: health.support, warnings: health.warnings },

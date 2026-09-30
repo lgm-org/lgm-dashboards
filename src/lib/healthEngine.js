@@ -2,13 +2,13 @@ import { HEALTH_BANDS, FLAG_NO_SALE_DAYS } from './healthConfig'
 import { computeHealth, recommendedAction } from './healthScoreModel'
 
 // `account.users` is Stripe's quantity on the "additional user" line items — i.e. the seats the
-// client is actually billed for. The first (admin) seat is included in the base plan and never
-// appears in Stripe, so total users = billed seats + 1. Do NOT subtract the free seat again here.
+// client is billed for. The real number of users in the sub-account comes from GHL
+// (`account.ghlUsers`, synced by the batch job); Stripe cannot tell us that, so never derive it.
 export function billableUsers(account) {
   return Math.max(0, account.users ?? 0)
 }
 export function totalUsers(account) {
-  return billableUsers(account) + 1
+  return account.ghlUsers ?? null
 }
 
 // John's 100-point model: platform activity 45 · sales activity 40 · account health 15.

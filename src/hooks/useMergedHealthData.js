@@ -280,6 +280,7 @@ export function useMergedHealthData() {
           lastContactCreated:  s.lastContactCreated || null,
           lastCallDate:        s.lastCallDate       || null,
           lastSaleDate:        s.lastSaleDate       || null,
+          ghlUsers:            s.ghlUsers           ?? null, // users in the GHL sub-account (real total, not Stripe seats)
           ghlSyncNote:         s.syncNote           || null, // GHL's reason when no activity could be read
         }
       })(),

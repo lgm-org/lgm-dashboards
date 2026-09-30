@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 const SUPABASE_URL = 'https://apfffxrydfkiokuysivy.supabase.co'
 const ANON_KEY     = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFwZmZmeHJ5ZGZraW9rdXlzaXZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0NDkyNTAsImV4cCI6MjEwMjAyNTI1MH0.T9-hXUucxuJkEuBKzT1bLmjPInWw_SbkG7hXjjepl6Q'
 
-const SELECT = 'location_id,last_contact_update,last_contact_created,last_call_date,last_sale_date,calls_7d,calls_yesterday_in,calls_yesterday_out,calls_source,won_30d,won_prior_30d,tickets_7d,meaningful_activity_at,health_score,sync_note,synced_at'
+const SELECT = 'location_id,last_contact_update,last_contact_created,last_call_date,last_sale_date,calls_7d,calls_yesterday_in,calls_yesterday_out,calls_source,won_30d,won_prior_30d,tickets_7d,active_users,meaningful_activity_at,health_score,sync_note,synced_at'
 
 const REFRESH_MS = 10 * 60 * 1000
 const RETRY_MS   = 60 * 1000
@@ -46,6 +46,7 @@ export function useGhlAccountStats() {
           won30d:               row.won_30d                ?? null,
           wonPrior30d:          row.won_prior_30d          ?? null,
           tickets7d:            row.tickets_7d             ?? null,
+          ghlUsers:             row.active_users           ?? null,
           meaningfulActivityAt: row.meaningful_activity_at || null,
           healthScore:          row.health_score           ?? null,
           syncNote:             row.sync_note              || null,

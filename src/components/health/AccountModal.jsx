@@ -562,7 +562,7 @@ export default function AccountModal({ account, onClose }) {
                   {[
                     { label: 'Total / mo',  value: account.totalRev      > 0 ? `$${Math.round(account.totalRev).toLocaleString()}`      : '—' },
                     { label: 'Base Plan',   value: account.planPrice     > 0 ? `$${Math.round(account.planPrice).toLocaleString()}`     : '—' },
-                    { label: `Billed Users — ${billableUsers(account)} additional seat${billableUsers(account) === 1 ? '' : 's'} (${totalUsers(account)} total incl. free admin)`, value: account.monthlyUserSub > 0 ? `$${Math.round(account.monthlyUserSub).toLocaleString()}` : '—' },
+                    { label: `Billed Users — ${billableUsers(account)} seat${billableUsers(account) === 1 ? '' : 's'} on Stripe · ${(liveMetrics?.users ?? totalUsers(account)) ?? '—'} users in GHL`, value: account.monthlyUserSub > 0 ? `$${Math.round(account.monthlyUserSub).toLocaleString()}` : '—' },
                     { label: 'Add-ons',     value: account.addOns        > 0 ? `$${Math.round(account.addOns).toLocaleString()}`        : '—' },
                   ].map(({ label, value }) => (
                     <div key={label} className="px-2 py-2.5 text-center bg-white">

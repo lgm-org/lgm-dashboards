@@ -89,7 +89,7 @@ const COLS = [
   { key: 'planPrice',          label: 'Plan',         sortable: true,  align: 'right',  tip: 'Base monthly plan price from Stripe. "yr" badge = annual plan (billed yearly).' },
   { key: 'addOns',             label: 'Add-ons',      sortable: false, align: 'right',  tip: 'Monthly add-on charges (e.g. LeadFlow AI). $0 = Stripe-matched with no active add-ons — upsell opportunity.' },
   { key: 'lcWalletCharges',    label: 'LC Wallet',    sortable: true,  align: 'right',  tip: 'Cumulative LC platform spend from Cliff\'s data: SMS, AI calls, email, voice. All-time total — not monthly.' },
-  { key: 'users',              label: 'Billed Users', sortable: true,  align: 'center', tip: 'Billed Users = quantity of "additional user" seats on the Stripe subscription (each $64/mo).\nThe first admin seat is included in the base plan and is never billed, so Total Users = Billed + 1.\nExample: 3 billed seats → 4 users in the account.' },
+  { key: 'users',              label: 'Users (billed / GHL)', sortable: true, align: 'center', tip: 'Billed = quantity of "additional user" seats on the Stripe subscription ($64/mo each).\nGHL = number of users actually set up in the sub-account (synced from GHL).\nShown as billed / GHL, e.g. 3 / 13. The two are separate facts — the dashboard does not infer one from the other.' },
   { key: '_estGP',             label: 'Est. GP%',     sortable: false, align: 'right',  tip: 'Estimated gross profit %: (Monthly Revenue − Est. Monthly LC Cost) ÷ Revenue. LC cost is estimated from all-time wallet spend ÷ tenure months. Will be exact once Cliff\'s daily LC sync is live.' },
   { key: '_sig:calls7d',       label: '7-Day Calls',  sortable: true,  align: 'center', tip: 'Calls in the last 7 days — the biggest usage signal (actual human behaviour in LG).\nScore (30 pts): 100+ = 30 · 75–99 = 25 · 50–74 = 20 · 25–49 = 12 · 1–24 = 5 · 0 = 0.\nSource: GHL call conversations (call_log once the n8n call webhook has history).' },
   { key: 'lastCallDate',       label: 'Last Call',    sortable: true,  align: 'center', tip: 'Days since the most recent call in this sub-account.\nScore (15 pts): ≤1d = 15 · 2–3d = 12 · 4–7d = 8 · 8–14d = 4 · 15d+ = 0.' },
@@ -340,7 +340,10 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                   {isAdmin && (
                     <td className="px-2 py-2 text-center">
                       {bound
-                        ? <span className="num text-[11px] text-brand-text">{billableUsers(a) > 0 ? billableUsers(a) : '—'}</span>
+                        ? <span className="num text-[11px] text-brand-text whitespace-nowrap" title={`${billableUsers(a)} billed seat(s) on Stripe · ${a.ghlUsers ?? '?'} users in GHL`}>
+                            {billableUsers(a) > 0 ? billableUsers(a) : '0'}
+                            <span className="text-brand-muted"> / {a.ghlUsers ?? '—'}</span>
+                          </span>
                         : <span className="text-brand-border text-[10px]">—</span>}
                     </td>
                   )}
