@@ -18,11 +18,14 @@ export function recipientsFor(role, override = null) {
   } catch { return [] }
 }
 
-// Resend (https://resend.com) — RESEND_API_KEY + a verified sending domain. No SDK needed.
+// Two delivery paths, first one configured wins:
+//   1. Gmail SMTP  — GMAIL_USER + GMAIL_APP_PASSWORD (Google Workspace app password; 2-Step Verification required)
+//   2. Resend      — RESEND_API_KEY + a verified sending domain (https://resend.com)
 export async function sendEmail({ to, subject, html }) {
-  const key = process.env.RESEND_API_KEY
-  if (!key) throw new Error('RESEND_API_KEY not configured')
   const from = process.env.BRIEFING_FROM || 'LGM Briefings <briefings@littlegiantmarketing.com>'
+  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) return sendViaGmail({ to, subject, html, from })
+  const key = process.env.RESEND_API_KEY
+  if (!key) throw new Error('No email provider configured: set GMAIL_USER + GMAIL_APP_PASSWORD or RESEND_API_KEY')
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -31,6 +34,16 @@ export async function sendEmail({ to, subject, html }) {
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`Resend HTTP ${res.status}: ${body?.message || JSON.stringify(body).slice(0, 200)}`)
   return body.id || null
+}
+
+async function sendViaGmail({ to, subject, html, from }) {
+  const { default: nodemailer } = await import('nodemailer')
+  const user = process.env.GMAIL_USER
+  const transport = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user, pass: process.env.GMAIL_APP_PASSWORD } })
+  // Gmail only sends as the authenticated user (or one of its verified aliases); keep the display name from BRIEFING_FROM
+  const name = (from.match(/^(.*?)\s*</) || [])[1] || 'LGM Briefings'
+  const info = await transport.sendMail({ from: `${name} <${user}>`, to, subject, html })
+  return info.messageId || null
 }
 
 // opts: { runDay, roles, send, to, skipAi, persist }
