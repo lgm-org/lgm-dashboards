@@ -44,7 +44,8 @@ Non-negotiable rules:
 - Highlight changes and trends (score moved, new since yesterday, repeat caller) over static numbers.
 - Items marked repeat:true were already reported recently — mention them only because they changed or are still critical, and say so.
 - Copy "ref" values exactly from the facts so the email can deep-link. Use null when there is no matching ref.
-- Tone: direct, specific, no fluff, no hedging. Plain sentences, no markdown.`
+- Tone: direct, specific, no fluff, no hedging. Plain sentences, no markdown.
+- Refer to the reporting period by its label ("yesterday" or "last week"); the 7-day / MTD / 30-day tables are always to-date.`
 
 const ROLE_INSTRUCTIONS = {
   joe: `Recipient: Joe, who owns District Manager (DM) relationships and agent growth.
@@ -127,7 +128,7 @@ export async function analyze(role, facts) {
     system: [{ type: 'text', text: `${RULES}\n\n${instructions}`, cache_control: { type: 'ephemeral' } }],
     messages: [{
       role: 'user',
-      content: `Today is ${facts.runDay} (Central time); "yesterday" is ${facts.yesterday}.\n\nFACTS (JSON):\n${JSON.stringify(packForModel(facts))}`,
+      content: `Today is ${facts.runDay} (Central time). Reporting period: ${facts.period?.label || 'yesterday'} (${facts.period?.start || facts.yesterday} to ${facts.period?.end || facts.yesterday}).${facts.period?.kind === 'week' ? ' This is the Monday edition: it covers the whole previous week, so say "last week", not "yesterday".' : ''}\n\nFACTS (JSON):\n${JSON.stringify(packForModel(facts))}`,
     }],
   })
   if (response.stop_reason === 'refusal') throw new Error(`Model refused (${response.stop_details?.category || 'unknown'})`)

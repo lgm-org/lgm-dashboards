@@ -192,7 +192,7 @@ Build check before pushing: `npm run build` — must exit with `✓ built` and n
 
 ## Daily AI Briefings (internal emails)
 
-Weekday morning emails per role (Joe / Kevin / Rachel / inbound team / John), generated on the
+Morning emails every Mon-Fri per role (Joe / Kevin / Rachel / inbound team / John; Monday = week recap), generated on the
 Customer Health Vercel project by `api/cron-daily-briefing.js`. All numbers are computed in
 `api/_briefingCollect.js`; Claude only picks and explains (`api/_briefingAnalyze.js`).
 Preview any role without sending: `GET /api/briefing?role=kevin&key=<BRIEFING_PREVIEW_KEY>`.

@@ -23,9 +23,12 @@ const SUBJECTS = {
 }
 const GREETING = { joe: 'Joe', kevin: 'Kevin', rachel: 'Rachel', inbound: 'Team', john: 'John' }
 
+const isWeek = (facts) => facts.period?.kind === 'week'
+const per = (facts) => facts.period?.short || 'Yesterday'
+
 export function subjectFor(role, facts, analysis) {
   const d = new Date(`${facts.runDay}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
-  return `${SUBJECTS[role]} — ${d}${analysis?.headline ? `: ${analysis.headline.slice(0, 80)}` : ''}`
+  return `${SUBJECTS[role]}${isWeek(facts) ? ' (week recap)' : ''} — ${d}${analysis?.headline ? `: ${analysis.headline.slice(0, 80)}` : ''}`
 }
 
 // ── building blocks ──────────────────────────────────────────────────────────
@@ -97,7 +100,7 @@ function rawRachel(f) {
 
 function rawKevin(f) {
   const t = f.salesTable
-  const rows = [['Yesterday', t.yesterday], ['Past 7 days', t.past7Days], ['MTD', t.mtd], ['Past 30 days', t.past30Days]].map(([l, w]) => [l, num(w.sales), money(w.newMrr), money(w.avgMrrPerSale), num(w.avgHealth)])
+  const rows = [[per(f), t.yesterday], ['Past 7 days', t.past7Days], ['MTD', t.mtd], ['Past 30 days', t.past30Days]].map(([l, w]) => [l, num(w.sales), money(w.newMrr), money(w.avgMrrPerSale), num(w.avgHealth)])
   return [
     section('Sales performance', table(['Period', 'Sales', 'New MRR', 'Avg MRR / sale', 'Avg health'], rows) + p(`<span style="color:${C.muted};font-size:12px">${esc(f.notes.join(' '))}</span>`), C.heading),
     section('Open demo follow-ups', table(['Prospect', 'Demo', 'Source', 'Rep', 'Status', 'Follow-up by', 'Notes'],
@@ -125,10 +128,10 @@ function rawInbound(f) {
     ? kpis([['Inbound calls', num(s.totalInbound)], ['Answered', num(s.answered)], ['Missed', num(s.missed)], ['Answer rate', pct(s.answerRatePct)], ['Avg time to answer', '—'], ['Missed needing follow-up', num(s.missedRequiringFollowUp)]])
     : empty(`Call stats unavailable: ${s.reason || 'unknown'}`)
   return [
-    section('Daily inbound call stats', statsBlock + p(`<span style="color:${C.muted};font-size:12px">${esc(f.notes[0])}</span>`), C.heading),
+    section(`Inbound call stats (${(f.period?.label || 'yesterday')})`, statsBlock + p(`<span style="color:${C.muted};font-size:12px">${esc(f.notes[0])}</span>`), C.heading),
     section('Missed calls needing follow-up', table(['Caller', 'Time', 'Outcome'], f.missedCallsNeedingFollowUp.map(c => [esc(c.caller), esc(c.time), esc(c.outcome)])), C.red),
-    section('Call breakdown (analysed calls, yesterday)', table(['Customer', 'Handled by', 'Time', 'Min', 'Reason', 'Result', 'Follow-up', 'Owner', 'Summary'],
-      f.callBreakdown.map(c => [link(c.customer, c.link), esc(c.employee), esc(c.time), num(c.durationMin), esc(c.reason), esc(c.result), c.followUpNeeded ? '<strong>Yes</strong>' : 'No', esc(c.owner), esc(c.summary.slice(0, 200))])), C.heading),
+    section(`Call breakdown (analysed calls, ${f.period?.label || 'yesterday'})`, table(['Customer', 'Handled by', isWeek(f) ? 'Date' : 'Time', 'Min', 'Reason', 'Result', 'Follow-up', 'Owner', 'Summary'],
+      f.callBreakdown.map(c => [link(c.customer, c.link), esc(c.employee), esc(isWeek(f) ? c.date : c.time), num(c.durationMin), esc(c.reason), esc(c.result), c.followUpNeeded ? '<strong>Yes</strong>' : 'No', esc(c.owner), esc(c.summary.slice(0, 200))])), C.heading),
     section('Repeat callers (past 7 days)', table(['Customer', 'Calls', 'Last reason', 'Last status'], f.repeatCallers.map(r => [esc(r.customer), num(r.calls7d), esc(r.lastReason), esc(r.lastStatus)])), C.orange),
   ].join('')
 }
@@ -137,15 +140,15 @@ function rawJohn(f) {
   const r = f.revenue, s = f.sales, h = f.customerHealth, o = f.onboarding, a = f.customerActivity, d = f.districtManagers
   const mv = (x) => [link(x.name, x.link), `${num(x.from)} → ${num(x.to)}`, money(x.mrr)]
   return [
-    section('1 · Revenue', kpis([['Sales yesterday', num(r.salesYesterday)], ['Past 7 days', num(r.salesPast7Days)], ['MTD', num(r.salesMtd)], ['New MRR (MTD)', money(r.newMrrMtd)]]) +
+    section('1 · Revenue', kpis([[`Sales ${per(f).toLowerCase()}`, num(r.salesYesterday)], ['Past 7 days', num(r.salesPast7Days)], ['MTD', num(r.salesMtd)], ['New MRR (MTD)', money(r.newMrrMtd)]]) +
       kpis([['Expansion MRR', money(r.expansionMrrSinceYesterday)], ['Churned MRR', money(r.churnedMrrSinceYesterday)], ['Net new MRR', money(r.netNewMrrSinceYesterday)], ['Active MRR', money(r.totalActiveMrr)]]) +
       p(`<span style="color:${C.muted};font-size:12px">${esc(r.note)}</span>`) +
-      (r.churnedAccounts.length ? table(['Churned since yesterday', 'MRR'], r.churnedAccounts.map(c => [link(c.name, c.link), money(c.mrr)])) : ''), C.heading),
-    section('2 · Sales', kpis([['Demos yesterday', num(s.demosHeldYesterday)], ['Demos 7d', num(s.demosHeldPast7Days)], ['Close rate 30d', pct(s.closeRatePct)], ['Avg MRR / sale', money(s.avgMrrPerSalePast30Days)]]) +
+      (r.churnedAccounts.length ? table(['Churned since the last briefing', 'MRR'], r.churnedAccounts.map(c => [link(c.name, c.link), money(c.mrr)])) : ''), C.heading),
+    section('2 · Sales', kpis([[`Demos ${per(f).toLowerCase()}`, num(s.demosHeldYesterday)], ['Demos 7d', num(s.demosHeldPast7Days)], ['Close rate 30d', pct(s.closeRatePct)], ['Avg MRR / sale', money(s.avgMrrPerSalePast30Days)]]) +
       (s.importantLostDemos.length ? table(['Important open demos', 'Demo', 'Rep', 'Status'], s.importantLostDemos.map(x => [`<strong>${esc(x.prospect)}</strong>`, esc(x.demoDate), esc(x.rep), esc(x.status)])) : ''), C.heading),
     section('3 · Customer health', kpis([['Avg health', num(h.avgHealth)], ['Red', `<span style="color:${C.red}">${num(h.bands.red)}</span>`], ['Yellow', `<span style="color:${C.yellow}">${num(h.bands.yellow)}</span>`], ['Green', `<span style="color:${C.green}">${num(h.bands.green)}</span>`], ['No data', num(h.bands.noData)]]) +
       table(['Top 5 at risk', 'Health', 'MRR', 'Why', 'Owner'], h.top5AtRisk.map(x => acctRow(x, [esc(x.why), esc(x.suggestedOwner)]))) +
-      (h.newAtRiskSinceYesterday.length ? `<div style="height:8px"></div>` + table(['New at-risk since yesterday', 'Score', 'MRR'], h.newAtRiskSinceYesterday.map(mv)) : '') +
+      (h.newAtRiskSinceYesterday.length ? `<div style="height:8px"></div>` + table([`New at-risk since ${isWeek(f) ? 'last week' : 'yesterday'}`, 'Score', 'MRR'], h.newAtRiskSinceYesterday.map(mv)) : '') +
       (h.deteriorated.length ? `<div style="height:8px"></div>` + table(['Deteriorated', 'Score', 'MRR'], h.deteriorated.map(mv)) : '') +
       (h.improved.length ? `<div style="height:8px"></div>` + table(['Improved', 'Score', 'MRR'], h.improved.map(mv)) : ''), C.heading),
     section('4 · Onboarding', kpis([['New 7d', num(o.newCustomersPast7Days)], ['New 30d', num(o.newCustomersPast30Days)], ['Avg health (new 30d)', num(o.avgHealthNewPast30Days)], ['Stuck', num(o.stuckInOnboarding.length)]]) +
@@ -169,8 +172,9 @@ export function render(role, facts, analysis) {
   const dateLabel = new Date(`${facts.runDay}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
   const failed = Object.entries(facts.sourceStatus || {}).filter(([, v]) => v !== 'ok')
   const isJohn = role === 'john'
+  const when = isWeek(facts) ? 'last week' : 'yesterday'
   const body = [
-    section(isJohn ? 'What went well yesterday' : 'What went well', bullets(a.went_well, linkMap), C.green),
+    section(isJohn ? `What went well ${when}` : 'What went well', bullets(a.went_well, linkMap), C.green),
     section(isJohn ? 'What needs attention today' : 'Needs attention', actions(a.needs_attention, linkMap), C.orange),
     section(isJohn ? 'CEO priorities' : 'Your top 3 today', numbered(a.priorities), C.heading),
     ...a.role_sections.map(s => section(s.title, bullets(s.items, linkMap), C.heading)),
@@ -184,7 +188,7 @@ export function render(role, facts, analysis) {
   <tr><td style="background:${C.green};padding:18px 24px">
     <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#fff;opacity:.9">Little Giant Marketing · Daily briefing</div>
     <div style="font-size:22px;font-weight:700;color:#fff;margin-top:4px">${esc(SUBJECTS[role])}</div>
-    <div style="font-size:13px;color:#fff;opacity:.9;margin-top:2px">${esc(dateLabel)}</div>
+    <div style="font-size:13px;color:#fff;opacity:.9;margin-top:2px">${esc(dateLabel)}${isWeek(facts) ? ` · Monday edition: covers ${esc(facts.period.label)}` : ''}</div>
   </td></tr>
   <tr><td style="padding:20px 24px 4px">
     <p style="margin:0 0 6px;font-size:14px;color:${C.muted}">Good morning, ${esc(GREETING[role])}.</p>

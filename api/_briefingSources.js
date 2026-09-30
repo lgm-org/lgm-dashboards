@@ -68,6 +68,21 @@ export const daysBetween = (fromDay, toDay) =>
 
 export const inDays = (dayStr, fromDay, toDay) => !!dayStr && dayStr >= fromDay && dayStr <= toDay
 
+export const weekdayOf = (dayStr) => new Date(`${dayStr}T12:00:00Z`).getUTCDay() // 0 = Sunday
+export const fmtDay = (dayStr) => new Date(`${dayStr}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+
+// Reporting period for a run day: Tue-Fri cover yesterday; Monday covers the previous seven days (Mon-Sun).
+export function reportingPeriod(runDay) {
+  const yesterday = addDays(runDay, -1)
+  const week = weekdayOf(runDay) === 1
+  const start = week ? addDays(yesterday, -6) : yesterday
+  return {
+    kind: week ? 'week' : 'day', start, end: yesterday, days: week ? 7 : 1,
+    label: week ? `last week (${fmtDay(start)} to ${fmtDay(yesterday)})` : 'yesterday',
+    short: week ? 'Last week' : 'Yesterday',
+  }
+}
+
 export const daysSinceIso = (iso, asOfDay) => iso ? daysBetween(localDay(new Date(iso)), asOfDay) : null
 
 export const round2 = (n) => Math.round((n || 0) * 100) / 100
@@ -222,14 +237,14 @@ async function lgmToken() {
 
 const MISSED_STATUSES = new Set(['no-answer', 'no_answer', 'busy', 'failed', 'canceled', 'cancelled', 'missed'])
 
-// All call messages on the LGM sub-account for one Central-time day.
-export async function loadLgmCalls(dayStr) {
+// All call messages on the LGM sub-account for a Central-time day range (inclusive).
+export async function loadLgmCalls(fromDay, toDay = fromDay) {
   const token = await lgmToken()
   if (!token) return { available: false, reason: 'no LGM location token', calls: [] }
-  const { start, end } = dayRange(dayStr)
+  const { start, end } = dayRange(fromDay, toDay)
   const convs = []
   let startAfter = null
-  for (let page = 0; page < 6; page++) {
+  for (let page = 0; page < 12; page++) {
     const qs = `locationId=${LGM_LOCATION_ID}&lastMessageType=TYPE_CALL&sortBy=last_message_date&sort=desc&limit=100` +
                (startAfter ? `&startAfterDate=${startAfter}` : '')
     const r = await ghlFetch(`/conversations/search?${qs}`, token)
@@ -245,7 +260,7 @@ export async function loadLgmCalls(dayStr) {
     startAfter = rows[rows.length - 1]?.lastMessageDate
   }
   const calls = []
-  for (const c of convs.slice(0, 250)) {
+  for (const c of convs.slice(0, 600)) {
     const m = await ghlFetch(`/conversations/${c.id}/messages?type=TYPE_CALL&limit=20`, token)
     const list = m.json?.messages?.messages || m.json?.messages || []
     for (const msg of list) {
@@ -255,8 +270,8 @@ export async function loadLgmCalls(dayStr) {
       const duration = Number(msg.meta?.call?.duration ?? msg.callDuration ?? 0) || 0
       calls.push({
         ref: `call:${msg.id}`,
-        id: msg.id, at: at.toISOString(),
-        timeLocal: new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).format(at),
+        id: msg.id, at: at.toISOString(), day: localDay(at),
+        timeLocal: new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(at),
         contactName: c.fullName || c.contactName || c.phone || 'Unknown caller',
         contactId: c.contactId || msg.contactId || null,
         direction: /out/i.test(msg.direction || '') ? 'outbound' : 'inbound',

@@ -1,4 +1,6 @@
-// Vercel cron — sends the daily AI briefings (weekdays, 11:15 UTC = 06:15 Central).
+// Vercel cron — sends the daily AI briefings every Monday to Friday at 11:15 UTC (06:15 Central).
+// Tuesday-Friday editions cover yesterday; the Monday edition covers the whole previous week
+// (see reportingPeriod() in _briefingSources.js).
 // vercel.json is shared by every Vercel project built from this repo, so this fires on all of
 // them; only the Customer Health project (VITE_APP_MODE=health) does the work.
 //

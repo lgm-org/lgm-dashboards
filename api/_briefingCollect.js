@@ -9,7 +9,7 @@ import { classifyScore, recommendedAction } from '../src/lib/healthScoreModel.js
 import {
   loadAccounts, loadStripe, matchBilling, ACTIVE_STRIPE, loadStats, loadHealthHistory, loadDmMap, loadMeetings,
   loadLgmCalls, loadFreshdeskCreated, loadPreviousSnapshot, loadRecentItems,
-  localDay, addDays, dayRange, daysBetween, daysSinceIso, inDays, avg, round2, accountLink, normalizeName, DASHBOARD_URL,
+  localDay, addDays, dayRange, daysBetween, daysSinceIso, inDays, avg, round2, accountLink, normalizeName, DASHBOARD_URL, reportingPeriod,
 } from './_briefingSources.js'
 
 export const ROLES = ['joe', 'kevin', 'rachel', 'inbound', 'john']
@@ -25,6 +25,8 @@ const bandLabel = { healthy: 'Green', watch: 'Yellow', at_risk: 'Red', no_data: 
 
 export async function buildContext(runDay = localDay()) {
   const yesterday = addDays(runDay, -1)
+  const period = reportingPeriod(runDay)       // Tue-Fri: yesterday · Monday: the previous 7 days
+  const beforePeriod = addDays(period.start, -1) // the day scores are compared against
   const d7  = addDays(runDay, -7)
   const d30 = addDays(runDay, -30)
   const mtdStart = `${runDay.slice(0, 7)}-01`
@@ -36,8 +38,8 @@ export async function buildContext(runDay = localDay()) {
     history:   loadHealthHistory(addDays(runDay, -8)),
     dmMap:     loadDmMap(),
     meetings:  loadMeetings(),
-    lgmCalls:  loadLgmCalls(yesterday),
-    freshdesk: loadFreshdeskCreated(dayRange(yesterday).start.toISOString()),
+    lgmCalls:  loadLgmCalls(period.start, period.end),
+    freshdesk: loadFreshdeskCreated(dayRange(period.start).start.toISOString()),
   }
   const keys = Object.keys(jobs)
   const settled = await Promise.allSettled(Object.values(jobs))
@@ -70,7 +72,7 @@ export async function buildContext(runDay = localDay()) {
     const hist = history[a.ghlId] || {}
     const histDays = Object.keys(hist).filter(d => d < runDay).sort()
     const earliest = histDays.find(d => d >= d7) || histDays[0] || null
-    const yScore = hist[yesterday] ?? hist[addDays(yesterday, -1)] ?? null
+    const yScore = hist[beforePeriod] ?? hist[addDays(beforePeriod, -1)] ?? null
     const rows = [...(meetingsByNorm[normalizeName(a.ghlName)] || []), ...(meetingsByLoc[a.ghlId] || [])]
       .filter((m, i, arr) => arr.findIndex(x => x.ref === m.ref) === i)
       .sort((x, y) => y.date.localeCompare(x.date))
@@ -107,7 +109,7 @@ export async function buildContext(runDay = localDay()) {
   const byCustomerId = Object.fromEntries(accounts.filter(a => a.stripeCustomerId).map(a => [a.stripeCustomerId, a]))
 
   return {
-    runDay, yesterday, d7, d30, mtdStart, sourceStatus,
+    runDay, yesterday, period, beforePeriod, d7, d30, mtdStart, sourceStatus,
     accounts, byId, byNorm, byCustomerId,
     stripe: src.stripe, meetings, meetingsByNorm, dmRows, lgmCalls: src.lgmCalls || { available: false, calls: [] },
     freshdesk: src.freshdesk || { available: false },
@@ -201,7 +203,7 @@ export async function collectRachel(ctx) {
 
   const scoreOf = (list) => avg(list.map(a => a.score))
   return {
-    role: 'rachel', runDay: ctx.runDay, yesterday: ctx.yesterday, dashboard: DASHBOARD_URL,
+    role: 'rachel', runDay: ctx.runDay, yesterday: ctx.yesterday, period: ctx.period, dashboard: DASHBOARD_URL,
     stats: {
       past7Days:  { newClients: new7.length,  avgHealth: scoreOf(new7) },
       past30Days: { newClients: new30.length, avgHealth: scoreOf(new30) },
@@ -220,7 +222,7 @@ export async function collectRachel(ctx) {
 
 export function collectKevin(ctx) {
   const windows = {
-    yesterday:  salesIn(ctx, ctx.yesterday, ctx.yesterday),
+    yesterday:  salesIn(ctx, ctx.period.start, ctx.period.end),
     past7Days:  salesIn(ctx, ctx.d7, ctx.yesterday),
     mtd:        salesIn(ctx, ctx.mtdStart, ctx.yesterday),
     past30Days: salesIn(ctx, ctx.d30, ctx.yesterday),
@@ -251,10 +253,10 @@ export function collectKevin(ctx) {
     .map(a => ({ ...brief(a), concern: a.band === 'at_risk' ? whyAtRisk(a) : a.band === 'watch' ? a.warnings.join('; ') || 'Watch band' : null }))
 
   return {
-    role: 'kevin', runDay: ctx.runDay, yesterday: ctx.yesterday, dashboard: DASHBOARD_URL,
+    role: 'kevin', runDay: ctx.runDay, yesterday: ctx.yesterday, period: ctx.period, dashboard: DASHBOARD_URL,
     salesTable: table,
     notes: ['Sales are company-wide Stripe subscription starts; per-rep attribution is not recorded yet.'],
-    demosHeld: { yesterday: salesRows.filter(m => m.date === ctx.yesterday && m.callType === 'Meeting').length, past7Days: salesRows.filter(m => m.date >= ctx.d7 && m.callType === 'Meeting').length },
+    demosHeld: { yesterday: salesRows.filter(m => inDays(m.date, ctx.period.start, ctx.period.end) && m.callType === 'Meeting').length, past7Days: salesRows.filter(m => m.date >= ctx.d7 && m.callType === 'Meeting').length },
     openDemoFollowUps: openFollowUps.slice(0, 15),
     recentlyClosed: closedRecently.slice(0, 10),
     recentSalesHealth: recentSales.slice(0, 20),
@@ -298,7 +300,7 @@ export function collectJoe(ctx) {
   const weakening = dms.filter(d => d.activeAgents > 0 && ((d.avgHealth !== null && d.avgHealth < 55) || (d.avgTrend7 !== null && d.avgTrend7 <= -5)))
     .sort((x, y) => (x.avgHealth ?? 999) - (y.avgHealth ?? 999))
   return {
-    role: 'joe', runDay: ctx.runDay, yesterday: ctx.yesterday, dashboard: DASHBOARD_URL,
+    role: 'joe', runDay: ctx.runDay, yesterday: ctx.yesterday, period: ctx.period, dashboard: DASHBOARD_URL,
     dmDataAvailable: ctx.dmRows.length > 0,
     notes: ctx.dmRows.length ? [] : ['The DM → agent mapping table (dm_agent_map) is empty, so DM groupings cannot be computed yet. The n8n hourly DM sync needs to populate it.'],
     totals: { dms: dms.length, agentsMapped: ctx.dmRows.length },
@@ -316,12 +318,12 @@ export function collectInbound(ctx) {
   const answered = inbound.filter(c => c.outcome === 'answered')
   const missed = inbound.filter(c => c.outcome === 'missed' || c.outcome === 'voicemail')
   // Missed calls with no answered call from the same contact later that day
-  const needFollowUp = missed.filter(m => !inbound.some(c => c.contactId && c.contactId === m.contactId && c.outcome === 'answered' && c.at > m.at))
+  const needFollowUp = missed.filter(m => !inbound.some(c => c.contactId && c.contactId === m.contactId && c.outcome === 'answered' && c.at > m.at) && !calls.some(c => c.direction === 'outbound' && c.contactId && c.contactId === m.contactId && c.outcome === 'answered' && c.at > m.at))
     .filter((m, i, arr) => arr.findIndex(x => x.contactId ? x.contactId === m.contactId : x.id === m.id) === i)
 
-  const phoneRows = ctx.meetings.filter(m => m.callType === 'Phone Call' && m.date === ctx.yesterday && m.employee && !/^none$/i.test(m.employee))
+  const phoneRows = ctx.meetings.filter(m => m.callType === 'Phone Call' && inDays(m.date, ctx.period.start, ctx.period.end) && m.employee && !/^none$/i.test(m.employee))
   const breakdown = phoneRows.map(m => ({
-    ref: m.ref, customer: m.customer, employee: m.employee, time: m.time, durationMin: m.durationMin,
+    ref: m.ref, customer: m.customer, employee: m.employee, date: m.date, time: m.time, durationMin: m.durationMin,
     reason: m.category, result: m.status, verdict: m.verdict, sentiment: m.sentiment, riskLevel: m.riskLevel,
     followUpNeeded: !/resolved/i.test(m.status), owner: m.followUpOwner || m.employee,
     summary: (m.summary || '').slice(0, 400), actionItems: m.actionItems, redFlags: m.redFlags, frustrated: m.frustrated,
@@ -336,7 +338,7 @@ export function collectInbound(ctx) {
   }).sort((x, y) => y.calls7d - x.calls7d).slice(0, 10)
 
   return {
-    role: 'inbound', runDay: ctx.runDay, yesterday: ctx.yesterday, dashboard: DASHBOARD_URL,
+    role: 'inbound', runDay: ctx.runDay, yesterday: ctx.yesterday, period: ctx.period, dashboard: DASHBOARD_URL,
     stats: {
       available: ctx.lgmCalls.available, reason: ctx.lgmCalls.reason || null,
       totalInbound: inbound.length, answered: answered.length, missed: missed.length,
@@ -350,7 +352,8 @@ export function collectInbound(ctx) {
     notes: [
       'Time-to-answer is not available: GHL only reports call start and duration, not ring time. It will appear once the n8n call tracker stores ring timestamps.',
       'Call breakdown comes from the Team AI call analysis sheet (transcribed calls only).',
-    ],
+      ctx.period.kind === 'week' ? 'Monday edition: stats and calls cover the whole previous week.' : null,
+    ].filter(Boolean),
     missedCallsNeedingFollowUp: needFollowUp.map(c => ({ ref: c.ref, caller: c.contactName, time: c.timeLocal, outcome: c.outcome })),
     callBreakdown: breakdown,
     unresolvedCalls: breakdown.filter(b => b.followUpNeeded),
@@ -376,7 +379,7 @@ export async function collectJohn(ctx, packs) {
     }
     expansion = round2(expansion); churned = round2(churned)
   }
-  const y = salesIn(ctx, ctx.yesterday, ctx.yesterday), w = salesIn(ctx, ctx.d7, ctx.yesterday), m = salesIn(ctx, ctx.mtdStart, ctx.yesterday)
+  const y = salesIn(ctx, ctx.period.start, ctx.period.end), w = salesIn(ctx, ctx.d7, ctx.yesterday), m = salesIn(ctx, ctx.mtdStart, ctx.yesterday)
   const kevin = packs.kevin, rachel = packs.rachel, inbound = packs.inbound, joe = packs.joe
 
   const d30rows = ctx.meetings.filter(x => /sales/i.test(x.category) && x.callType === 'Meeting' && x.date >= ctx.d30 && x.date <= ctx.yesterday)
@@ -396,10 +399,10 @@ export async function collectJohn(ctx, packs) {
   const stuck = new30.filter(a => a.daysSinceAdded >= 7 && (a.onboardingMeetings === 0 || (a.calls7d ?? 0) === 0)).map(a => ({
     ...brief(a), missing: [a.onboardingMeetings === 0 ? 'no onboarding meeting recorded' : null, (a.calls7d ?? 0) === 0 ? 'no calls in 7 days (platform not in use)' : null, a.score === null ? 'no GHL activity data' : null].filter(Boolean),
   }))
-  const escalations = ctx.meetings.filter(x => x.date === ctx.yesterday && (/escalat/i.test(x.status) || x.frustrated)).map(x => ({ ref: x.ref, customer: x.customer, employee: x.employee, status: x.status, summary: (x.summary || '').slice(0, 240) }))
+  const escalations = ctx.meetings.filter(x => inDays(x.date, ctx.period.start, ctx.period.end) && (/escalat/i.test(x.status) || x.frustrated)).map(x => ({ ref: x.ref, customer: x.customer, employee: x.employee, status: x.status, summary: (x.summary || '').slice(0, 240) }))
 
   return {
-    role: 'john', runDay: ctx.runDay, yesterday: ctx.yesterday, dashboard: DASHBOARD_URL,
+    role: 'john', runDay: ctx.runDay, yesterday: ctx.yesterday, period: ctx.period, dashboard: DASHBOARD_URL,
     revenue: {
       salesYesterday: y.sales, salesPast7Days: w.sales, salesMtd: m.sales,
       newMrrYesterday: y.newMrr, newMrrPast7Days: w.newMrr, newMrrMtd: m.newMrr,
@@ -408,7 +411,7 @@ export async function collectJohn(ctx, packs) {
       churnedAccounts: churnedAccounts.slice(0, 10), expandedAccounts: expandedAccounts.slice(0, 10),
       totalActiveMrr: round2(Object.values(today).filter(t => t.active).reduce((s, t) => s + t.mrr, 0)),
       activeCustomers: Object.values(today).filter(t => t.active).length,
-      note: prev ? `Expansion/churn compared with the ${prev.run_date} snapshot.` : 'First run: expansion and churned MRR need a previous day snapshot and will appear from tomorrow.',
+      note: prev ? `Expansion/churn compared with the ${prev.run_date} snapshot (the previous briefing).` : 'First run: expansion and churned MRR need a previous snapshot and will appear from the next briefing.',
     },
     sales: {
       demosHeldYesterday: kevin.demosHeld.yesterday, demosHeldPast7Days: kevin.demosHeld.past7Days,
@@ -430,8 +433,8 @@ export async function collectJohn(ctx, packs) {
     customerActivity: {
       inboundCalls: inbound.stats.totalInbound, answered: inbound.stats.answered, missedCalls: inbound.stats.missed, answerRatePct: inbound.stats.answerRatePct,
       callDataAvailable: inbound.stats.available,
-      meetingsYesterday: ctx.meetings.filter(x => x.date === ctx.yesterday && x.callType === 'Meeting').length,
-      analysedCallsYesterday: ctx.meetings.filter(x => x.date === ctx.yesterday && x.callType === 'Phone Call').length,
+      meetingsYesterday: ctx.meetings.filter(x => inDays(x.date, ctx.period.start, ctx.period.end) && x.callType === 'Meeting').length,
+      analysedCallsYesterday: ctx.meetings.filter(x => inDays(x.date, ctx.period.start, ctx.period.end) && x.callType === 'Phone Call').length,
       supportTicketsYesterday: ctx.freshdesk.available ? ctx.freshdesk.created : null, urgentTicketsYesterday: ctx.freshdesk.available ? ctx.freshdesk.urgent : null,
       escalations,
     },

@@ -1,7 +1,8 @@
 # Daily AI Briefings (internal)
 
 Role-specific morning emails ("what happened, what matters, what should I do today") generated
-from the data the dashboards already have. Spec: John's "Daily Briefings Upgrades (Internal)"
+from the data the dashboards already have. Sent every Monday to Friday at 06:15 Central:
+Tuesday-Friday cover yesterday, the Monday edition covers the whole previous week (Mon-Sun). Spec: John's "Daily Briefings Upgrades (Internal)"
 ClickUp task, 2026-09-29.
 
 Runs on the **Customer Health** Vercel project (`lgm-customer-health`, `VITE_APP_MODE=health`),
@@ -13,7 +14,7 @@ because that project already holds every secret the job needs.
 cron-health-sync (weekdays 09:00–10:50 UTC, every 10 min, resumable cursor)
    └─ refreshes ghl_account_stats + health_score_daily for all ~330 sub-accounts
 
-cron-daily-briefing (weekdays 11:15 UTC = 06:15 Central)
+cron-daily-briefing (Mon-Fri 11:15 UTC = 06:15 Central; Monday = week recap)
    1. _briefingCollect.buildContext  → loads GHL accounts, Stripe, Supabase health tables,
                                         dm_agent_map, the Team AI meeting sheet, LGM inbound
                                         calls (GHL), Freshdesk — all in parallel, each optional
