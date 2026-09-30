@@ -79,7 +79,7 @@ export function suggestAddon(account) {
   const seats     = account.users ?? 0
   const rev       = account.planPrice ?? 0
   const isMonthly = (account.planInterval ?? 'month') === 'month'
-  const isDM      = account.accountType === 'DM'
+  const isDM      = account.accountType === 'Direct' // direct (not under a DM) accounts get the annual-plan pitch
 
   // High LC spend + no add-ons → AI automation is a clear fit
   if (lc > 100 && addOns === 0) {

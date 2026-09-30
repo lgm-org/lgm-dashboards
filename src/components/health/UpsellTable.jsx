@@ -40,7 +40,7 @@ function UpsellRow({ a, i, isContacted, toggleContacted, getContactedAt, onAccou
           </button>
           {a.accountType && (
             <span className={`text-[9px] font-bold px-1 py-0.5 rounded border flex-shrink-0 ${
-              a.accountType === 'DM' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-purple-50 border-purple-200 text-purple-700'
+              a.accountType === 'Direct' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-purple-50 border-purple-200 text-purple-700'
             }`}>{a.accountType}</span>
           )}
         </div>
@@ -96,7 +96,7 @@ function UpsellRow({ a, i, isContacted, toggleContacted, getContactedAt, onAccou
 }
 
 const UPSELL_HEADERS = [
-  { label: 'Account',        tip: 'Account name + plan type (DM = Digital Marketing, Agent = AI platform).' },
+  { label: 'Account',        tip: 'Account name + type from the DM Footprint: Agent = assigned to a District Manager, Direct = no DM assigned.' },
   { label: 'LC Wallet',      tip: 'Cumulative LC platform spend (SMS, AI, calls, email). High spend = actively using the platform = strongest upsell signal.' },
   { label: 'Users',          tip: 'Current billed user seat count from Stripe. Fewer than 4 = room to grow seats.' },
   { label: 'Current Rev',    tip: 'Total monthly charges currently billed — the baseline before any upsell.' },

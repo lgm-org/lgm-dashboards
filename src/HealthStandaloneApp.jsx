@@ -62,7 +62,7 @@ function DashboardShell({ onSignOut }) {
   const { isAdmin, role } = useContext(RoleContext)
   const [activeTab, setActiveTab] = useState('health')
   const [healthFilters, setHealthFilters] = useState({
-    search: '', typeFilter: 'all', bandFilter: 'all', billingFilter: 'all',
+    search: '', typeFilter: 'all', dmFilter: 'all', bandFilter: 'all', billingFilter: 'all',
     dateRange: { type: 'all', from: '', to: '' },
   })
 

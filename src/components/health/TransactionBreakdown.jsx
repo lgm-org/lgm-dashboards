@@ -72,7 +72,7 @@ function DrilldownPanel({ item, accounts, onClose }) {
                 </td>
                 <td className="px-2 py-2 hidden sm:table-cell">
                   <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${
-                    (a.accountType || '').toLowerCase() === 'dm'
+                    (a.accountType || '').toLowerCase() === 'direct'
                       ? 'bg-blue-50 border-blue-200 text-blue-700'
                       : 'bg-purple-50 border-purple-200 text-purple-700'
                   }`}>{a.accountType || '—'}</span>

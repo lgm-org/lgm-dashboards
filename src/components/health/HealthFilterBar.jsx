@@ -18,14 +18,14 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10)
 }
 
-const EMPTY = { search: '', typeFilter: 'all', bandFilter: 'all', billingFilter: 'all', dateRange: { type: 'all', from: '', to: '' } }
+const EMPTY = { search: '', typeFilter: 'all', dmFilter: 'all', bandFilter: 'all', billingFilter: 'all', dateRange: { type: 'all', from: '', to: '' } }
 
-export default function HealthFilterBar({ filters, setFilters, accountTypes, totalShowing, totalAll, dmCount = 0, agentCount = 0 }) {
-  const { search, typeFilter, bandFilter, billingFilter = 'all', dateRange } = filters
+export default function HealthFilterBar({ filters, setFilters, totalShowing, totalAll, dmManagedCount = 0, directCount = 0, dmList = [] }) {
+  const { search, typeFilter, dmFilter = 'all', bandFilter, billingFilter = 'all', dateRange } = filters
 
   const set    = (patch) => setFilters(f => ({ ...f, ...patch }))
   const setDR  = (patch) => setFilters(f => ({ ...f, dateRange: { ...f.dateRange, ...patch } }))
-  const isDirty = search || typeFilter !== 'all' || bandFilter !== 'all' || billingFilter !== 'all' || dateRange.type !== 'all'
+  const isDirty = search || typeFilter !== 'all' || dmFilter !== 'all' || bandFilter !== 'all' || billingFilter !== 'all' || dateRange.type !== 'all'
 
   return (
     <div
@@ -49,11 +49,11 @@ export default function HealthFilterBar({ filters, setFilters, accountTypes, tot
           />
         </div>
 
-        {/* Account type filter (DM / Agent) */}
+        {/* DM Footprint filters — same classification as the DM Footprint tab */}
         <div className="flex items-center gap-1 flex-shrink-0">
           <select
             value={typeFilter}
-            onChange={e => set({ typeFilter: e.target.value })}
+            onChange={e => set({ typeFilter: e.target.value, ...(e.target.value === 'direct' ? { dmFilter: 'all' } : {}) })}
             className="text-[11px] font-semibold border border-brand-border rounded-lg px-2.5 py-1.5 bg-brand-bg focus:outline-none cursor-pointer transition-colors duration-150"
             style={{
               color:       typeFilter !== 'all' ? '#3a6b10' : '#6B7280',
@@ -61,12 +61,35 @@ export default function HealthFilterBar({ filters, setFilters, accountTypes, tot
               borderColor: typeFilter !== 'all' ? `${G}50`  : '#E5E7E5',
             }}
           >
-            <option value="all">DM + Agent{dmCount + agentCount > 0 ? ` (${dmCount + agentCount})` : ''}</option>
-            <option value="DM">DM Only{dmCount > 0 ? ` (${dmCount})` : ''}</option>
-            <option value="Agent">Agent Only{agentCount > 0 ? ` (${agentCount})` : ''}</option>
+            <option value="all">All accounts{dmManagedCount + directCount > 0 ? ` (${dmManagedCount + directCount})` : ''}</option>
+            <option value="dm_managed">Under a DM{dmManagedCount > 0 ? ` (${dmManagedCount})` : ''}</option>
+            <option value="direct">Not in DM Footprint{directCount > 0 ? ` (${directCount})` : ''}</option>
           </select>
           <InfoTip
-            text={"Rule: Agent = the sub-account appears in the DM Footprint (Supabase table dm_agent_map, synced hourly by n8n from the GHL contact custom field that assigns agents to a DM). DM = every other sub-account.\nThis is the same source that populates the DM Footprint tab. Counts next to each option confirm the map is loaded."}
+            text={"Same rule as the DM Footprint tab.\nUnder a DM = the sub-account is listed in the DM Footprint (Supabase dm_agent_map, filled hourly by n8n from the GHL contact custom field that assigns an agent to a District Manager).\nNot in DM Footprint = no DM assigned (direct / independent account).\nPick a specific DM in the next dropdown to see only that DM's agents."}
+            position="bottom-end"
+          />
+        </div>
+
+        {/* Specific DM */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <select
+            value={dmFilter}
+            onChange={e => set({ dmFilter: e.target.value, ...(e.target.value !== 'all' ? { typeFilter: 'dm_managed' } : {}) })}
+            className="text-[11px] font-semibold border border-brand-border rounded-lg px-2.5 py-1.5 bg-brand-bg focus:outline-none cursor-pointer transition-colors duration-150 max-w-[190px]"
+            style={{
+              color:       dmFilter !== 'all' ? '#3a6b10' : '#6B7280',
+              background:  dmFilter !== 'all' ? `${G}10`  : '#F4F6F4',
+              borderColor: dmFilter !== 'all' ? `${G}50`  : '#E5E7E5',
+            }}
+          >
+            <option value="all">All DMs{dmList.length ? ` (${dmList.length})` : ''}</option>
+            {dmList.map(d => (
+              <option key={d.name} value={d.name}>{d.name} ({d.count})</option>
+            ))}
+          </select>
+          <InfoTip
+            text={"Filter to one District Manager's agents — the same grouping as the DM Footprint tab. The number is how many agent sub-accounts are assigned to that DM."}
             position="bottom-end"
           />
         </div>

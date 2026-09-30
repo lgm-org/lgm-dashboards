@@ -82,7 +82,7 @@ export default function DmAgentBreakdown({ breakdown, avgHealthDm, avgHealthAgen
           <p className="text-brand-muted text-[11px] mt-0.5">Revenue distribution by account type</p>
         </div>
         <InfoTip
-          text={"Rule: Agent = sub-account is listed in the DM Footprint (Supabase dm_agent_map, synced hourly by n8n from the GHL contact custom field that assigns agents to a DM). DM = every other sub-account.\nRevenue and counts include Stripe-matched accounts only. Avg health = mean health score of each group."}
+          text={"Same classification as the DM Footprint tab.\nAgents under a DM = sub-accounts listed in the DM Footprint (Supabase dm_agent_map, filled hourly by n8n from the GHL contact custom field that assigns an agent to a District Manager).\nDirect = every other sub-account (no DM assigned).\nRevenue and counts include Stripe-matched accounts only. Avg health = mean health score of each group. Click a row to filter the dashboard."}
           position="top-end"
         />
       </div>
@@ -94,8 +94,8 @@ export default function DmAgentBreakdown({ breakdown, avgHealthDm, avgHealthAgen
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={[
-                  { name: 'DM',    value: breakdown?.dm?.rev    || 0.01, color: G   },
-                  { name: 'Agent', value: breakdown?.agent?.rev || 0.01, color: AMB },
+                  { name: 'Direct',     value: breakdown?.dm?.rev    || 0.01, color: G   },
+                  { name: 'Under a DM', value: breakdown?.agent?.rev || 0.01, color: AMB },
                 ]} cx="50%" cy="50%" innerRadius={28} outerRadius={48}
                   dataKey="value" paddingAngle={3}>
                   <Cell fill={G} />
@@ -111,8 +111,8 @@ export default function DmAgentBreakdown({ breakdown, avgHealthDm, avgHealthAgen
 
           {/* Stats */}
           <div className="flex-1 min-w-0 w-full">
-            <StatLine dot={G}   label="DM"    count={breakdown?.dm?.count ?? 0}    rev={breakdown?.dm?.rev ?? 0}    pct={breakdown?.dm?.pct ?? 0}    onClick={onTypeClick ? () => onTypeClick('DM')    : undefined} />
-            <StatLine dot={AMB} label="Agent" count={breakdown?.agent?.count ?? 0} rev={breakdown?.agent?.rev ?? 0} pct={breakdown?.agent?.pct ?? 0} onClick={onTypeClick ? () => onTypeClick('Agent') : undefined} />
+            <StatLine dot={G}   label="Direct (no DM)"      count={breakdown?.dm?.count ?? 0}    rev={breakdown?.dm?.rev ?? 0}    pct={breakdown?.dm?.pct ?? 0}    onClick={onTypeClick ? () => onTypeClick('direct')     : undefined} />
+            <StatLine dot={AMB} label="Agents under a DM"   count={breakdown?.agent?.count ?? 0} rev={breakdown?.agent?.rev ?? 0} pct={breakdown?.agent?.pct ?? 0} onClick={onTypeClick ? () => onTypeClick('dm_managed') : undefined} />
 
             <div className="flex items-center justify-between pt-2.5">
               <span className="text-brand-muted text-[11px] font-semibold">Total Revenue</span>
@@ -122,7 +122,7 @@ export default function DmAgentBreakdown({ breakdown, avgHealthDm, avgHealthAgen
             {(avgHealthDm !== null || avgHealthAgent !== null) && (
               <div className="mt-3 pt-3 border-t border-brand-border/60 grid grid-cols-2 gap-3">
                 <div className="text-center rounded-xl bg-brand-bg border border-brand-border p-2">
-                  <p className="text-[10px] text-brand-muted uppercase tracking-wider">DM Avg Health</p>
+                  <p className="text-[10px] text-brand-muted uppercase tracking-wider">Direct Avg Health</p>
                   <p className="num font-bold text-[15px] mt-0.5" style={{ color: G }}>{avgHealthDm ?? '—'}</p>
                 </div>
                 <div className="text-center rounded-xl bg-brand-bg border border-brand-border p-2">

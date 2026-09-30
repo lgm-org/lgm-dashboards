@@ -70,7 +70,7 @@ function TypeChip({ type, bound }) {
   if (!bound) return null
   return (
     <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ml-1 ${
-      type === 'DM'
+      type === 'Direct'
         ? 'bg-blue-50 border-blue-200 text-blue-700'
         : 'bg-purple-50 border-purple-200 text-purple-700'
     }`}>{type}</span>

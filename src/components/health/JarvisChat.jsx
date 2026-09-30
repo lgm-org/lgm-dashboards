@@ -498,7 +498,7 @@ export default function JarvisChat() {
         atRisk:        accounts.filter(a => a.band === 'at_risk').length,
         totalMRR,
         avgMRR:        stripeMatched.length ? Math.round(totalMRR / stripeMatched.length) : 0,
-        dmCount:       active.filter(a => a.type === 'DM').length,
+        dmCount:       active.filter(a => a.type === 'Direct').length,
         agentCount:    active.filter(a => a.type === 'Agent').length,
         scheduledCancel: active.filter(a => a.pending).length,
         cohort30: cohortChurn(30), cohort60: cohortChurn(60), cohort90: cohortChurn(90),

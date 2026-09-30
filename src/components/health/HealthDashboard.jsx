@@ -102,7 +102,7 @@ export default function HealthDashboard({ filters, setFilters }) {
   const { isAdmin }             = useRole()
   const { accounts: raw, loading, stripeLoading, error, lastUpdated, refetch, activityStats } = useMergedHealthData()
   const { statuses, setStatus } = useAccountStatus()
-  const { dmMap, dmLoaded }     = useDmAgentMap()
+  const { dmMap, dmList, dmLoaded } = useDmAgentMap()
   const [selectedAccount, setSelectedAccount] = useState(null)
   // Deep link from the daily briefing emails: /?account=<ghlLocationId> opens that account's modal once data is loaded
   const deepLinkHandled = useRef(false)
@@ -236,9 +236,8 @@ export default function HealthDashboard({ filters, setFilters }) {
       // DM footprint is authoritative for type: accounts listed there are Agent clients
       // (column name is agent_ghl_location_id). Accounts not in the footprint are DM clients.
       // This overrides Stripe price-detection and Cliff sheet for accounts in the footprint.
-      const accountType = dmEntry
-        ? 'Agent'
-        : (a.accountType !== 'Unknown' ? a.accountType : 'DM')
+      // Same classification as the DM Footprint tab: listed under a DM → Agent, otherwise Direct
+      const accountType = dmEntry?.dmName ? 'Agent' : 'Direct'
       return { ...a, accountType, _health: { score, parts, band, action }, _dm: dmEntry }
     }),
     [raw, dmMap]
@@ -253,9 +252,10 @@ export default function HealthDashboard({ filters, setFilters }) {
       if (srch && !a.accountName.toLowerCase().includes(srch) &&
           !(a.ghlEmail || '').toLowerCase().includes(srch) &&
           !(a.ghlCity  || '').toLowerCase().includes(srch)) return false
-      // Use DM footprint (_dm) as source of truth: in footprint = Agent, not in = DM
-      if (filters.typeFilter === 'DM'    && a._dm !== null) return false
-      if (filters.typeFilter === 'Agent' && a._dm === null) return false
+      // DM Footprint classification (same as the DM Footprint tab): in dm_agent_map = under a DM
+      if (filters.typeFilter === 'dm_managed' && !a._dm?.dmName) return false
+      if (filters.typeFilter === 'direct'     &&  a._dm?.dmName) return false
+      if (filters.dmFilter && filters.dmFilter !== 'all' && a._dm?.dmName !== filters.dmFilter) return false
       if (filters.bandFilter !== 'all' && a._health?.band !== filters.bandFilter) return false
       if (billing === 'matched'          && !a._stripeBound) return false
       if (billing === 'unmatched'        &&  a._stripeBound) return false
@@ -291,8 +291,8 @@ export default function HealthDashboard({ filters, setFilters }) {
     : null
 
   // DM/Agent split counts — passed to filter bar so dropdown shows live counts
-  const agentCount = useMemo(() => accounts.filter(a => a._dm !== null).length, [accounts])
-  const dmCount    = useMemo(() => accounts.filter(a => a._dm === null).length,  [accounts])
+  const dmManagedCount = useMemo(() => accounts.filter(a =>  a._dm?.dmName).length, [accounts])
+  const directCount    = useMemo(() => accounts.filter(a => !a._dm?.dmName).length, [accounts])
 
   // KPIs — derived from filteredAccounts so DM/Agent/band filters update all numbers
   // Only use lastActivity (real GHL contact data) — not ghlDaysSinceUpdate (settings update, unreliable)
@@ -392,8 +392,8 @@ export default function HealthDashboard({ filters, setFilters }) {
 
   // ── DM vs Agent breakdown ────────────────────────────────────────────────
   const dmAgentBreakdown = useMemo(() => {
-    const dm    = billedAccounts.filter(a => a.accountType === 'DM')
-    const agent = billedAccounts.filter(a => a.accountType !== 'DM')
+    const dm    = billedAccounts.filter(a => a.accountType === 'Direct')
+    const agent = billedAccounts.filter(a => a.accountType !== 'Direct')
     const dmRev    = dm.reduce((s, a) => s + a.totalRev, 0)
     const agentRev = agent.reduce((s, a) => s + a.totalRev, 0)
     const total    = dmRev + agentRev
@@ -405,12 +405,12 @@ export default function HealthDashboard({ filters, setFilters }) {
   }, [billedAccounts])
 
   const avgHealthDm = useMemo(() => {
-    const dm = filteredAccounts.filter(a => a.accountType === 'DM' && a._health?.score != null)
+    const dm = filteredAccounts.filter(a => a.accountType === 'Direct' && a._health?.score != null)
     return dm.length ? Math.round(dm.reduce((s, a) => s + a._health.score, 0) / dm.length) : null
   }, [filteredAccounts])
 
   const avgHealthAgent = useMemo(() => {
-    const ag = filteredAccounts.filter(a => a.accountType !== 'DM' && a._stripeBound && a._health?.score != null)
+    const ag = filteredAccounts.filter(a => a.accountType !== 'Direct' && a._stripeBound && a._health?.score != null)
     return ag.length ? Math.round(ag.reduce((s, a) => s + a._health.score, 0) / ag.length) : null
   }, [filteredAccounts])
 
@@ -528,11 +528,11 @@ export default function HealthDashboard({ filters, setFilters }) {
       <HealthFilterBar
         filters={filters}
         setFilters={setFilters}
-        accountTypes={[]}
         totalShowing={filteredAccounts.length}
         totalAll={accounts.length}
-        dmCount={dmCount}
-        agentCount={agentCount}
+        dmManagedCount={dmManagedCount}
+        directCount={directCount}
+        dmList={dmList}
       />
 
       {/* Sub-tab switcher */}
@@ -726,7 +726,7 @@ export default function HealthDashboard({ filters, setFilters }) {
                     <td className="px-4 py-2.5 font-semibold text-red-600">${Math.round(a.totalRev).toLocaleString()}/mo</td>
                     <td className="px-4 py-2.5">
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
-                        a.accountType === 'DM'
+                        a.accountType === 'Direct'
                           ? 'bg-blue-50 border-blue-200 text-blue-700'
                           : 'bg-purple-50 border-purple-200 text-purple-700'
                       }`}>{a.accountType || '—'}</span>

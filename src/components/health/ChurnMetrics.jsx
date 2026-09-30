@@ -37,7 +37,7 @@ function ScorePill({ score }) {
 
 function TypeBadge({ type }) {
   if (!type || type === 'Unknown') return null
-  const isDm = type === 'DM' || type === 'dm'
+  const isDm = type === 'Direct' || type === 'DM' || type === 'dm'
   return (
     <span className="ml-1.5 text-[9px] uppercase tracking-wider font-semibold"
       style={{ color: isDm ? '#7C3AED' : '#0369A1' }}>
