@@ -1,9 +1,14 @@
 import { HEALTH_BANDS, FLAG_NO_SALE_DAYS } from './healthConfig'
 import { computeHealth, recommendedAction } from './healthScoreModel'
 
-// First user on every account is free — only additional seats are billable.
+// `account.users` is Stripe's quantity on the "additional user" line items — i.e. the seats the
+// client is actually billed for. The first (admin) seat is included in the base plan and never
+// appears in Stripe, so total users = billed seats + 1. Do NOT subtract the free seat again here.
 export function billableUsers(account) {
-  return Math.max(0, (account.users ?? 0) - 1)
+  return Math.max(0, account.users ?? 0)
+}
+export function totalUsers(account) {
+  return billableUsers(account) + 1
 }
 
 // John's 100-point model: platform activity 45 · sales activity 40 · account health 15.

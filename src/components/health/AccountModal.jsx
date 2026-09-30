@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { differenceInDays, parseISO, isValid, format } from 'date-fns'
-import { recommendAction, accountHealth, billableUsers, isFlagged } from '../../lib/healthEngine'
+import { recommendAction, accountHealth, billableUsers, totalUsers, isFlagged } from '../../lib/healthEngine'
 import GHLInfoPanel from './GHLInfoPanel'
 import InfoTip from './InfoTip'
 import { useRole } from '../../contexts/RoleContext'
@@ -562,7 +562,7 @@ export default function AccountModal({ account, onClose }) {
                   {[
                     { label: 'Total / mo',  value: account.totalRev      > 0 ? `$${Math.round(account.totalRev).toLocaleString()}`      : '—' },
                     { label: 'Base Plan',   value: account.planPrice     > 0 ? `$${Math.round(account.planPrice).toLocaleString()}`     : '—' },
-                    { label: `Billable Users (${billableUsers(account)} of ${account.users ?? 0} total · 1st free)`, value: account.monthlyUserSub > 0 ? `$${Math.round(account.monthlyUserSub).toLocaleString()}` : '—' },
+                    { label: `Billed Users — ${billableUsers(account)} additional seat${billableUsers(account) === 1 ? '' : 's'} (${totalUsers(account)} total incl. free admin)`, value: account.monthlyUserSub > 0 ? `$${Math.round(account.monthlyUserSub).toLocaleString()}` : '—' },
                     { label: 'Add-ons',     value: account.addOns        > 0 ? `$${Math.round(account.addOns).toLocaleString()}`        : '—' },
                   ].map(({ label, value }) => (
                     <div key={label} className="px-2 py-2.5 text-center bg-white">
