@@ -7,13 +7,7 @@ const GHL_BASE = 'https://services.leadconnectorhq.com'
 const GHL_VER  = '2021-07-28'
 const STRIPE_BASE = 'https://api.stripe.com/v1'
 
-const SANDBOX_PATTERNS = /sandbox|test account|test 2|in progress|bilingual snapshot/i
-const EXCLUDED_NAMES = new Set([
-  'little giant dev', 'recruitment account - dm', "clifford berman's account",
-  'kitajima insurance', 'lgm add-ons', 'data forest',
-  'lgm nps survey', "joe perniciaro's account", 'hlpt saas snapshot',
-  'tippy taps', 'farmers sandbox', '(new) sandbox', 'mallard',
-])
+import { isExcludedLocation } from '../src/lib/excludedLocations.js'
 
 function normalizeName(n) {
   return (n || '')
@@ -66,10 +60,7 @@ async function fetchAllGHL(key) {
     if (batch.length < 100) break
     skip += 100
   }
-  return all.filter(loc => {
-    const name = (loc.name || '').trim()
-    return !SANDBOX_PATTERNS.test(name) && !EXCLUDED_NAMES.has(name.toLowerCase())
-  })
+  return all.filter(loc => !isExcludedLocation({ id: loc.id, name: loc.name }))
 }
 
 async function fetchAllStripeCustomers(key) {

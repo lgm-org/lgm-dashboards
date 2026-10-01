@@ -14,6 +14,7 @@
 import { kv } from './_supabase.js'
 import { createClient } from '@supabase/supabase-js'
 import { computeHealth } from '../src/lib/healthScoreModel.js'
+import { isExcludedLocation } from '../src/lib/excludedLocations.js'
 
 const GHL_BASE   = 'https://services.leadconnectorhq.com'
 const GHL_VER    = '2021-07-28'
@@ -290,7 +291,9 @@ export async function runSync({ skip = 0, only = null, debug = false } = {}) {
       })
       const d = await r.json()
       const batch = d.locations || []
-      allLocations = allLocations.concat(batch.filter(l => l.id).map(l => ({ id: l.id, tz: l.timezone || null })))
+      allLocations = allLocations.concat(
+        batch.filter(l => l.id && !isExcludedLocation({ id: l.id, name: l.name })).map(l => ({ id: l.id, tz: l.timezone || null }))
+      )
       if (batch.length < 100) break
       s += 100
     }

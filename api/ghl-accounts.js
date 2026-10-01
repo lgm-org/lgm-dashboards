@@ -4,6 +4,8 @@
 //
 // Env var required: GHL_AGENCY_API_KEY (set in Vercel project settings)
 
+import { isExcludedLocation } from '../src/lib/excludedLocations.js'
+
 const GHL_BASE = 'https://services.leadconnectorhq.com'
 const GHL_VER  = '2021-07-28'
 
@@ -33,38 +35,8 @@ export async function fetchGhlAccounts(key) {
 
     const now = new Date()
 
-    // Strip internal / non-client accounts — pattern match + exact name list
-    const SANDBOX_PATTERNS = /sandbox|test account|test 2|in progress|bilingual snapshot/i
-    const EXCLUDED_NAMES   = new Set([
-      'little giant dev',
-      'recruitment account - dm',
-      'clifford berman\'s account',
-      'kitajima insurance',
-      'lgm add-ons',
-      'data forest',
-      // Synced from frontend EXCLUDED_NAMES (useMergedHealthData.js)
-      'lgm nps survey',
-      "joe perniciaro's account",
-      'hlpt saas snapshot',
-      'tippy taps',
-      'mallard',
-      'lgm add-on',
-      'lgm add on',
-      'lgm addon',
-      'lgm training',
-      'lgm training account',
-      'lgm test',
-      'lgm demo',
-      'lgm demo account',
-      'little giant marketing',
-      'little giant marketing agency',
-      'data forest lgm add-on',
-      'data forest lgm add on',
-    ])
-    const realLocs = all.filter(loc => {
-      const name = (loc.name || '').trim()
-      return !SANDBOX_PATTERNS.test(name) && !EXCLUDED_NAMES.has(name.toLowerCase())
-    })
+    // Strip internal / non-client accounts — shared list in src/lib/excludedLocations.js
+    const realLocs = all.filter(loc => !isExcludedLocation({ id: loc.id, name: loc.name }))
 
     const accounts = realLocs.map(loc => {
       const updatedAt        = loc.dateUpdated ? new Date(loc.dateUpdated) : null

@@ -27,15 +27,7 @@ import { getCustomFieldMap, FIELD_TARGETS } from './_masterLeadsCore.js'
 const GHL_BASE = 'https://services.leadconnectorhq.com'
 const GHL_VER  = '2021-07-28'
 
-const SANDBOX_PATTERNS = /sandbox|test account|test 2|in progress|bilingual snapshot/i
-const EXCLUDED_NAMES = new Set([
-  'little giant dev', 'recruitment account - dm', "clifford berman's account",
-  'kitajima insurance', 'lgm add-ons', 'data forest', 'lgm nps survey',
-  "joe perniciaro's account", 'hlpt saas snapshot', 'tippy taps', 'mallard',
-  'lgm add-on', 'lgm add on', 'lgm addon', 'lgm training', 'lgm training account',
-  'lgm test', 'lgm demo', 'lgm demo account', 'little giant marketing',
-  'little giant marketing agency', 'data forest lgm add-on', 'data forest lgm add on',
-])
+import { isExcludedLocation } from '../src/lib/excludedLocations.js'
 
 async function fetchRealLocations() {
   const key = process.env.GHL_AGENCY_API_KEY
@@ -54,10 +46,7 @@ async function fetchRealLocations() {
     skip += 100
   }
 
-  return all.filter(loc => {
-    const name = (loc.name || '').trim()
-    return !SANDBOX_PATTERNS.test(name) && !EXCLUDED_NAMES.has(name.toLowerCase())
-  })
+  return all.filter(loc => !isExcludedLocation({ id: loc.id, name: loc.name }))
 }
 
 async function auditOne(loc) {

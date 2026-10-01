@@ -4,6 +4,7 @@ import { useGHLAccounts }     from './useGHLAccounts'
 import { useCallData }        from './useCallData'
 import { useGhlAccountStats } from './useGhlAccountStats'
 import { computeHealth } from '../lib/healthScoreModel'
+import { isExcludedLocation } from '../lib/excludedLocations'
 
 const STRIPE_REFRESH_MS = 300_000 // 5 min — match GHL cadence
 
@@ -40,30 +41,8 @@ function useLcChargesBulk() {
   return { byLocationId, latestMonthById }
 }
 
-// Sub-accounts to exclude from all counts, KPIs, and tables (internal/test/snapshot accounts)
-const EXCLUDED_NAMES = new Set([
-  'lgm nps survey',
-  "joe perniciaro's account",
-  'hlpt saas snapshot',
-  'tippy taps',
-  'farmers sandbox',
-  '(new) sandbox',
-  'mallard',
-  // LGM internal add-on / test accounts (John flagged 2026-08-18 demo)
-  'lgm add-on',
-  'lgm add on',
-  'lgm addon',
-  'lgm training',
-  'lgm training account',
-  'lgm test',
-  'lgm test account',
-  'lgm demo',
-  'lgm demo account',
-  'little giant marketing',
-  'little giant marketing agency',
-  'data forest lgm add-on',
-  'data forest lgm add on',
-])
+// Sub-accounts to exclude from all counts, KPIs, and tables live in src/lib/excludedLocations.js
+// (shared with the API routes, so the list can never drift between server and dashboard).
 
 // Normalize phone to 10 digits for matching
 function normalizePhone(p) {
@@ -186,7 +165,7 @@ export function useMergedHealthData() {
   const { statsMap, statsLoaded, statsError, latestSyncedAt, reloadStats } = useGhlAccountStats()
 
   const accounts = (ghl.accounts || [])
-    .filter(g => !EXCLUDED_NAMES.has((g.ghlName || '').toLowerCase().trim()))
+    .filter(g => !isExcludedLocation({ id: g.ghlId, name: g.ghlName }))
     .map(g => {
     // Join priority (highest confidence first):
     // 1. Cliff's sheet: locationId → stripeCustomerId → full Stripe record  (authoritative)
