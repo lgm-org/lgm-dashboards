@@ -3,6 +3,7 @@ import { format, subDays, startOfMonth, endOfMonth, subMonths, differenceInDays,
 import { useMergedHealthData }    from '../../hooks/useMergedHealthData'
 import { useAccountStatus }       from '../../hooks/useAccountStatus'
 import { useDmAgentMap }          from '../../hooks/useDmAgentMap'
+import { useNewSalesMrr }         from '../../hooks/useNewSalesMrr'
 import { useRole }                from '../../contexts/RoleContext'
 import { scoreAccount, classify, isAtRisk, recommendAction, isUpsellReady, suggestAddon, billableUsers } from '../../lib/healthEngine'
 import HealthFilterBar            from './HealthFilterBar'
@@ -103,6 +104,7 @@ export default function HealthDashboard({ filters, setFilters }) {
   const { accounts: raw, loading, stripeLoading, error, lastUpdated, refetch, activityStats } = useMergedHealthData()
   const { statuses, setStatus } = useAccountStatus()
   const { dmMap, dmList, dmLoaded } = useDmAgentMap()
+  const newSales                    = useNewSalesMrr()
   const [selectedAccount, setSelectedAccount] = useState(null)
   // Deep link from the daily briefing emails: /?account=<ghlLocationId> opens that account's modal once data is loaded
   const deepLinkHandled = useRef(false)
@@ -320,6 +322,26 @@ export default function HealthDashboard({ filters, setFilters }) {
     const list = filteredAccounts.filter(a => { const d = a.ghlDateAdded || ''; return d && d >= from && d <= to })
     return { newAccounts: list, newPeriodLabel: label }
   }, [filteredAccounts, filters.dateRange])
+
+  // New Sale MRR — GHL Sales Pipeline, "Payment Made" stage, status Won, opportunity value.
+  // Follows the Customer Since date window; default window is the last 30 days.
+  const newSaleMrr = useMemo(() => {
+    const today = new Date()
+    const isAllTime = filters.dateRange.type === 'all'
+    const from = isAllTime ? format(subDays(today, 30), 'yyyy-MM-dd') : getDateWindow(filters.dateRange).from
+    const to   = isAllTime ? format(today, 'yyyy-MM-dd')              : getDateWindow(filters.dateRange).to
+    const inWindow = newSales.sales.filter(s => s.wonDay && s.wonDay >= from && s.wonDay <= to)
+    return {
+      mrr:   inWindow.reduce((s, x) => s + (x.value || 0), 0),
+      count: inWindow.length,
+      sales: inWindow,
+      loading: newSales.loading,
+      error:   newSales.error,
+      stageFound: newSales.stageFound,
+      pipelineName: newSales.pipeline?.name || null,
+      stageName:    newSales.stage?.name || null,
+    }
+  }, [newSales, filters.dateRange])
 
   const avgScore = useMemo(() => {
     const scored = filteredAccounts.filter(a => a._health?.score !== null && a._health?.score !== undefined)
@@ -603,6 +625,7 @@ export default function HealthDashboard({ filters, setFilters }) {
         avgScore={avgScore}
         avgTenureDays={avgTenureDays}
         dateFiltered={!!activeDateLabel}
+        newSaleMrr={newSaleMrr}
         {...BILLING}
         freshdeskLoaded={!!freshdesk}
         openTickets={freshdesk?.openCount ?? 0}

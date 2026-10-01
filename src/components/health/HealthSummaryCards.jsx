@@ -75,6 +75,8 @@ export default function HealthSummaryCards({
   avgScore = 0,
   avgTenureDays = 0,
   dateFiltered = false,
+  // New Sale MRR from GHL (Sales Pipeline → Payment Made → Won → opp value)
+  newSaleMrr = null,
   // billing fields — all 0 until Stripe / billing sheet connected
   billedCount = 0,
   atRisk = 0,
@@ -126,7 +128,7 @@ export default function HealthSummaryCards({
       <Card
         label={dateFiltered ? 'New Clients' : 'New Clients — Last 30 Days'}
         value={newCount}
-        sub={`Joined GHL in ${newPeriodLabel}${isAdmin && hasBilling && newMRR ? ` · ${fmt(newMRR)}/mo` : ''}`}
+        sub={`Joined GHL in ${newPeriodLabel}`}
         icon="✨"
         accentColor={G}
         delay={40}
@@ -171,6 +173,30 @@ export default function HealthSummaryCards({
         delay={100}
         infoText="Average months clients have been active GHL sub-accounts. Longer tenure = lower churn risk."
       />
+
+      {isAdmin && (newSaleMrr?.error ? (
+        <PendingCard
+          label={dateFiltered ? 'New Sale MRR' : 'New Sale MRR — Last 30 Days'}
+          icon="🏷️"
+          delay={110}
+          pendingNote={`GHL sales pipeline unavailable (${newSaleMrr.error})`}
+          infoText="New Sale MRR = sum of the opportunity value of deals in LGM's GHL Sales Pipeline that reached the 'Payment Made' stage with status Won, for the selected period."
+        />
+      ) : (
+        <Card
+          label={dateFiltered ? 'New Sale MRR' : 'New Sale MRR — Last 30 Days'}
+          value={Math.round(newSaleMrr?.mrr ?? 0)}
+          prefix="$"
+          sub={newSaleMrr?.loading
+            ? 'Loading GHL sales pipeline…'
+            : `${newSaleMrr?.count ?? 0} won deal${(newSaleMrr?.count ?? 0) === 1 ? '' : 's'} in ${newPeriodLabel}${newSaleMrr?.stageFound === false ? ' · ⚠ Payment Made stage not found' : ''}`}
+          icon="🏷️"
+          accentColor={G}
+          delay={110}
+          highlighted={dateFiltered}
+          infoText={"Source: GHL → LGM's own sub-account → Sales Pipeline → 'Payment Made' stage → status Won → opportunity value (projected new MRR).\nCounted by the date the opportunity was marked Won; follows the Customer Since date filter (default: last 30 days).\nNot from Stripe. Pipeline and stage are matched by name, so renaming 'Payment Made' in GHL would break this."}
+        />
+      ))}
 
       {/* ── Billing-dependent fields — admin only ───────────────────────────── */}
       {isAdmin && hasBilling ? (
