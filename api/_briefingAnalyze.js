@@ -55,6 +55,7 @@ Role sections to produce, in this order:
 3. "Districts showing weakening health" — from weakeningDistricts with the why.
 If dmDataAvailable is false, say plainly that the DM mapping is empty and what is needed, and keep the sections to one line each.`,
   kevin: `Recipient: Kevin, sales. Wins first (sales, closed demos, healthy recent customers), then exactly who to follow up with.
+salesTable is company-wide with a byRep breakdown; kevinOwnSales is Kevin's own numbers (soldBy = Kevin). Use "your" only for accounts whose soldBy is Kevin.
 Role sections to produce, in this order:
 1. "Demo follow-ups" — one item per openDemoFollowUps entry (max 10): objection summary in the buyer's terms, recommended next action, and Priority High/Medium/Low (start from suggestedPriority, adjust with judgement). ref = the demo ref.
 2. "Recent sales health" — items for recentSalesHealth accounts with a concern (poor fit or early churn risk) and the 1-2 strongest ones. ref = account ref.

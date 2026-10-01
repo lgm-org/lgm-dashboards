@@ -8,7 +8,7 @@
 import { classifyScore, recommendedAction } from '../src/lib/healthScoreModel.js'
 import {
   loadAccounts, loadStripe, matchBilling, ACTIVE_STRIPE, loadStats, loadHealthHistory, loadDmMap, loadMeetings,
-  loadLgmCalls, loadFreshdeskCreated, loadPreviousSnapshot, loadRecentItems,
+  loadLgmCalls, loadFreshdeskCreated, loadLgmCustomers, loadPreviousSnapshot, loadRecentItems,
   localDay, addDays, dayRange, daysBetween, daysSinceIso, inDays, avg, round2, accountLink, normalizeName, DASHBOARD_URL, reportingPeriod,
 } from './_briefingSources.js'
 
@@ -40,6 +40,7 @@ export async function buildContext(runDay = localDay()) {
     meetings:  loadMeetings(),
     lgmCalls:  loadLgmCalls(period.start, period.end),
     freshdesk: loadFreshdeskCreated(dayRange(period.start).start.toISOString()),
+    customers: loadLgmCustomers(),
   }
   const keys = Object.keys(jobs)
   const settled = await Promise.allSettled(Object.values(jobs))
@@ -54,6 +55,7 @@ export async function buildContext(runDay = localDay()) {
   const history  = src.history || {}
   const meetings = src.meetings || []
   const dmRows   = src.dmMap || []
+  const customers = src.customers || { available: false, bySubAccount: {}, byEmail: {} }
 
   // Meeting rows indexed by customer name and by GHL location id (phone calls carry it in Meeting ID)
   const meetingsByNorm = {}, meetingsByLoc = {}
@@ -78,8 +80,11 @@ export async function buildContext(runDay = localDay()) {
       .sort((x, y) => y.date.localeCompare(x.date))
     const lastMeeting = rows[0] || null
     const onboarding = rows.filter(m => /onboard/i.test(m.category))
-    const soldDay = billing?.stripeStartDate || null
+    const cust = customers.bySubAccount[a.ghlId] || (a.ghlEmail && customers.byEmail[(a.ghlEmail || '').toLowerCase().trim()]) || (billing?.stripeCustomerId && null) || null
+    const soldDay = billing?.stripeStartDate || cust?.soldDate || null
     return {
+      soldBy: cust?.soldBy || null,
+      onboarding: cust ? { preference: cust.onboardingPref, buildOut: cust.buildOut, a2pApprovedAt: cust.a2pApprovedAt, trainingDate: cust.trainingDate, subscriptionStatus: cust.subscriptionStatus, crmStatus: cust.crmStatus, districtOffice: cust.districtOffice, referrer: cust.referrer } : null,
       id: a.ghlId, name: a.ghlName, link: accountLink(a.ghlId),
       dateAdded: a.ghlDateAdded, daysSinceAdded: a.ghlDateAdded ? daysBetween(a.ghlDateAdded, runDay) : null,
       mrr: billing ? round2(billing.totalRev) : null, stripeStatus: billing?.stripeStatus || null,
@@ -111,7 +116,7 @@ export async function buildContext(runDay = localDay()) {
   return {
     runDay, yesterday, period, beforePeriod, d7, d30, mtdStart, sourceStatus,
     accounts, byId, byNorm, byCustomerId,
-    stripe: src.stripe, meetings, meetingsByNorm, dmRows, lgmCalls: src.lgmCalls || { available: false, calls: [] },
+    stripe: src.stripe, meetings, meetingsByNorm, dmRows, customers, lgmCalls: src.lgmCalls || { available: false, calls: [] },
     freshdesk: src.freshdesk || { available: false },
     generatedAt: new Date().toISOString(),
   }
@@ -123,7 +128,8 @@ const brief = (a) => ({
   ref: a.id, name: a.name, link: a.link, mrr: a.mrr, score: a.score, band: a.bandLabel, trend7: a.trend7,
   warnings: a.warnings, recommendedAction: a.recommendedAction, daysSinceActivity: a.daysSinceActivity,
   calls7d: a.calls7d, won30d: a.won30d, tickets7d: a.tickets7d, signupDate: a.dateAdded, soldDate: a.soldDay,
-  lastMeeting: a.lastMeeting, dm: a.dm?.name || null,
+  lastMeeting: a.lastMeeting, dm: a.dm?.name || null, soldBy: a.soldBy || null,
+  onboarding: a.onboarding ? { buildOut: a.onboarding.buildOut, trainingDate: a.onboarding.trainingDate, a2pApprovedAt: a.onboarding.a2pApprovedAt, subscriptionStatus: a.onboarding.subscriptionStatus, preference: a.onboarding.preference } : null,
 })
 
 const scoreAsc  = (x, y) => (x.score ?? 999) - (y.score ?? 999) || (y.mrr ?? 0) - (x.mrr ?? 0)
@@ -162,7 +168,15 @@ function salesIn(ctx, fromDay, toDay) {
   const recs = Object.values(ctx.stripe?.byCustomerId || {}).filter(r => inDays(r.stripeStartDate, fromDay, toDay))
   const scores = recs.map(r => ctx.byCustomerId[r.stripeCustomerId]?.score).filter(s => typeof s === 'number')
   const newMrr = round2(recs.reduce((s, r) => s + (r.totalRev || 0), 0))
-  return { sales: recs.length, newMrr, avgMrrPerSale: recs.length ? round2(newMrr / recs.length) : null, avgHealth: avg(scores), records: recs }
+  const byRep = {}
+  for (const r of recs) {
+    const rep = ctx.byCustomerId[r.stripeCustomerId]?.soldBy || 'Unattributed'
+    const b = (byRep[rep] ||= { sales: 0, newMrr: 0, scores: [] })
+    b.sales++; b.newMrr = round2(b.newMrr + (r.totalRev || 0))
+    const sc = ctx.byCustomerId[r.stripeCustomerId]?.score; if (typeof sc === 'number') b.scores.push(sc)
+  }
+  for (const b of Object.values(byRep)) { b.avgHealth = avg(b.scores); delete b.scores }
+  return { sales: recs.length, newMrr, avgMrrPerSale: recs.length ? round2(newMrr / recs.length) : null, avgHealth: avg(scores), byRep, records: recs }
 }
 
 function demoIsClosed(ctx, m) {
@@ -182,6 +196,16 @@ export async function collectRachel(ctx) {
   const new7  = new30.filter(a => a.dateAdded >= ctx.d7)
 
   const onboardingStatus = (a) => {
+    const o = a.onboarding
+    if (o && (o.buildOut || o.trainingDate || o.subscriptionStatus)) {
+      const parts = []
+      if (o.buildOut) parts.push(o.buildOut)
+      if (o.trainingDate) parts.push(`training ${o.trainingDate}${o.trainingDate > ctx.yesterday ? ' (scheduled)' : ''}`)
+      else parts.push('no training date set')
+      if (o.a2pApprovedAt) parts.push(`A2P approved ${o.a2pApprovedAt}`); else parts.push('A2P not approved')
+      if (o.subscriptionStatus && o.subscriptionStatus !== 'Active') parts.push(o.subscriptionStatus)
+      return parts.join(' · ')
+    }
     if (a.lastOnboardingMeeting) return `Onboarding call held ${a.lastOnboardingMeeting.date}${a.lastOnboardingMeeting.status ? ` (${a.lastOnboardingMeeting.status})` : ''}`
     if ((a.calls7d ?? 0) > 0) return 'Using the platform, no onboarding meeting recorded'
     return 'No onboarding meeting recorded yet'
@@ -227,7 +251,8 @@ export function collectKevin(ctx) {
     mtd:        salesIn(ctx, ctx.mtdStart, ctx.yesterday),
     past30Days: salesIn(ctx, ctx.d30, ctx.yesterday),
   }
-  const table = Object.fromEntries(Object.entries(windows).map(([k, v]) => [k, { sales: v.sales, newMrr: v.newMrr, avgMrrPerSale: v.avgMrrPerSale, avgHealth: v.avgHealth }]))
+  const table = Object.fromEntries(Object.entries(windows).map(([k, v]) => [k, { sales: v.sales, newMrr: v.newMrr, avgMrrPerSale: v.avgMrrPerSale, avgHealth: v.avgHealth, byRep: v.byRep }]))
+  const kevinOwn = Object.fromEntries(Object.entries(windows).map(([k, v]) => [k, v.byRep.Kevin || { sales: 0, newMrr: 0, avgHealth: null }]))
 
   // Demos = Sales-category meetings in the last 14 days, latest row per prospect
   const d14 = addDays(ctx.runDay, -14)
@@ -255,7 +280,10 @@ export function collectKevin(ctx) {
   return {
     role: 'kevin', runDay: ctx.runDay, yesterday: ctx.yesterday, period: ctx.period, dashboard: DASHBOARD_URL,
     salesTable: table,
-    notes: ['Sales are company-wide Stripe subscription starts; per-rep attribution is not recorded yet.'],
+    kevinOwnSales: kevinOwn,
+    notes: ctx.customers.available
+      ? ['Sales = Stripe subscription starts. Rep attribution comes from the "New Customer Signed Up By" field on the LGM customer record; sales without it show as Unattributed.']
+      : ['Sales = Stripe subscription starts. Rep attribution unavailable this run (LGM customer records could not be loaded).'],
     demosHeld: { yesterday: salesRows.filter(m => inDays(m.date, ctx.period.start, ctx.period.end) && m.callType === 'Meeting').length, past7Days: salesRows.filter(m => m.date >= ctx.d7 && m.callType === 'Meeting').length },
     openDemoFollowUps: openFollowUps.slice(0, 15),
     recentlyClosed: closedRecently.slice(0, 10),
@@ -396,9 +424,20 @@ export async function collectJohn(ctx, packs) {
   const mv = (a) => ({ ref: a.id, name: a.name, link: a.link, from: a.yesterdayScore, to: a.score, mrr: a.mrr })
 
   const new30 = ctx.accounts.filter(a => a.dateAdded && inDays(a.dateAdded, ctx.d30, ctx.yesterday))
-  const stuck = new30.filter(a => a.daysSinceAdded >= 7 && (a.onboardingMeetings === 0 || (a.calls7d ?? 0) === 0)).map(a => ({
-    ...brief(a), missing: [a.onboardingMeetings === 0 ? 'no onboarding meeting recorded' : null, (a.calls7d ?? 0) === 0 ? 'no calls in 7 days (platform not in use)' : null, a.score === null ? 'no GHL activity data' : null].filter(Boolean),
-  }))
+  const stuckReasons = (a) => {
+    const o = a.onboarding
+    const out = []
+    if (o) {
+      if (o.buildOut && !/ready/i.test(o.buildOut)) out.push(`account build-out: ${o.buildOut}`)
+      if (!o.trainingDate) out.push('no training date set')
+      if (!o.a2pApprovedAt) out.push('A2P not approved')
+      if (o.subscriptionStatus && /pending/i.test(o.subscriptionStatus)) out.push(o.subscriptionStatus)
+    } else if (a.onboardingMeetings === 0) out.push('no onboarding meeting recorded')
+    if ((a.calls7d ?? 0) === 0) out.push('no calls in 7 days (platform not in use)')
+    if (a.score === null) out.push('no GHL activity data')
+    return out
+  }
+  const stuck = new30.filter(a => a.daysSinceAdded >= 7 && stuckReasons(a).length).map(a => ({ ...brief(a), missing: stuckReasons(a) }))
   const escalations = ctx.meetings.filter(x => inDays(x.date, ctx.period.start, ctx.period.end) && (/escalat/i.test(x.status) || x.frustrated)).map(x => ({ ref: x.ref, customer: x.customer, employee: x.employee, status: x.status, summary: (x.summary || '').slice(0, 240) }))
 
   return {
@@ -417,6 +456,7 @@ export async function collectJohn(ctx, packs) {
       demosHeldYesterday: kevin.demosHeld.yesterday, demosHeldPast7Days: kevin.demosHeld.past7Days,
       demosPast30Days: demos30.length, closedPast30Days: closed30, closeRatePct: demos30.length ? Math.round((closed30 / demos30.length) * 100) : null,
       avgMrrPerSalePast30Days: kevin.salesTable.past30Days.avgMrrPerSale,
+      byRepPast30Days: kevin.salesTable.past30Days.byRep, byRepMtd: kevin.salesTable.mtd.byRep,
       importantLostDemos: kevin.openDemoFollowUps.filter(d => d.suggestedPriority === 'High').slice(0, 5),
       biggestOpportunities: kevin.openDemoFollowUps.filter(d => /interest|engaged|happy/i.test(d.sentiment)).slice(0, 5),
     },

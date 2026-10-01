@@ -49,6 +49,7 @@ Roles: `joe` (DM growth) · `kevin` (sales + follow-up) · `rachel` (onboarding 
 | `ANTHROPIC_API_KEY` | already set (Jarvis) |
 | `RESEND_API_KEY` | **needed to send** — Resend account with `littlegiantmarketing.com` verified |
 | `BRIEFING_FROM` | e.g. `LGM Briefings <briefings@littlegiantmarketing.com>` |
+| `GMAIL_USER` + `GMAIL_APP_PASSWORD` | Google Workspace SMTP sender (app password); wins over Resend when set |
 | `BRIEFING_RECIPIENTS` | JSON: `{"joe":["joe@…"],"kevin":["…"],"rachel":["…"],"inbound":["hope@…","jessica@…","kylie@…","rachel@…"],"john":["john@…"]}` |
 | `BRIEFING_TEST_TO` | While set, **every** briefing goes only here (safe rollout). Remove to go live. |
 | `BRIEFING_PREVIEW_KEY` | Key for the preview endpoint |
@@ -62,7 +63,7 @@ which opens that account's modal (HealthDashboard.jsx).
 ## Data gaps (sections show "no data" until filled)
 
 - **DM → agent mapping** (`dm_agent_map`) is empty → Joe's briefing and John's DM section are placeholders until the n8n DM sync populates it.
-- **Per-rep sales attribution** is not recorded → Kevin's sales table is company-wide.
+- **Per-rep sales attribution** comes from the LGM sub-account customer contact field "New Customer Signed Up By" (Kevin / Joe), matched to the client via "Sub-account ID"; sales without it show as Unattributed. The same record supplies onboarding status (Account Build Out, Team Onboarding Training Date, A2P Approved Date, User Subscription Status).
 - **Time to answer** for inbound calls is not in GHL call messages → shown as "—" until the n8n call tracker stores ring timestamps.
 - **Expansion / churned MRR** needs a previous-day `_stripe` snapshot → appears from the second run.
 - Health scores refresh via `cron-health-sync`; accounts with `sync_note` (paused/deleted in GHL) have no score.

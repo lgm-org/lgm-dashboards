@@ -287,6 +287,76 @@ export async function loadLgmCalls(fromDay, toDay = fromDay) {
   return { available: true, calls, conversationsScanned: convs.length }
 }
 
+// ── LGM customer records: who sold each account and where onboarding stands ──
+// LGM's own sub-account holds one contact per customer with custom fields filled in by the
+// team at signup: "New Customer Signed Up By" (Kevin / Joe), "Sub-account ID" (the client's
+// GHL location id), "Sold Date", "Account Build Out", "Team Onboarding Training Date", etc.
+const CUSTOMER_FIELDS = {
+  soldBy:             'New Customer Signed Up By',
+  subAccountId:       'Sub-account ID',
+  soldDate:           'Sold Date',
+  onboardingPref:     'Onboarding Preference',
+  buildOut:           'Account Build Out',
+  a2pApprovedAt:      'A2P Approved Date (Ready for Training)',
+  trainingDate:       'Team Onboarding Training Date',
+  subscriptionStatus: 'User Subscription Status',
+  crmStatus:          'CRM Status',
+  districtOffice:     'District Office Name',
+  referrer:           'Referree Name',
+}
+const toDay = (v) => {
+  if (v === null || v === undefined || v === '') return null
+  const d = new Date(typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v)
+  return isNaN(d) ? null : localDay(d)
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+// { bySubAccount: { locationId: rec }, byEmail: { email: rec }, count }
+export async function loadLgmCustomers() {
+  const token = await lgmToken()
+  if (!token) return { available: false, reason: 'no LGM location token', bySubAccount: {}, byEmail: {}, count: 0 }
+  const f = await ghlFetch(`/locations/${LGM_LOCATION_ID}/customFields`, token)
+  if (!f.ok) return { available: false, reason: `customFields HTTP ${f.status}`, bySubAccount: {}, byEmail: {}, count: 0 }
+  const idByName = {}
+  for (const cf of f.json?.customFields || []) idByName[(cf.name || '').trim().toLowerCase()] = cf.id
+  const ids = Object.fromEntries(Object.entries(CUSTOMER_FIELDS).map(([k, name]) => [k, idByName[name.toLowerCase()] || null]))
+  if (!ids.soldBy && !ids.subAccountId) return { available: false, reason: 'customer fields not found on LGM sub-account', bySubAccount: {}, byEmail: {}, count: 0 }
+
+  const bySubAccount = {}, byEmail = {}
+  let startAfter = null, startAfterId = null, count = 0
+  for (let page = 0; page < 40; page++) {
+    if (page > 0) await sleep(120)
+    let path = `/contacts/?locationId=${LGM_LOCATION_ID}&limit=100`
+    if (startAfter && startAfterId) path += `&startAfter=${startAfter}&startAfterId=${startAfterId}`
+    const r = await ghlFetch(path, token)
+    if (!r.ok) break
+    const batch = r.json?.contacts || []
+    for (const c of batch) {
+      const val = (k) => { const cf = (c.customFields || []).find(x => x.id === ids[k]); return cf ? (cf.value ?? cf.fieldValue ?? null) : null }
+      const soldBy = val('soldBy'), sub = val('subAccountId')
+      if (!soldBy && !sub) continue
+      const rec = {
+        contactId: c.id, name: [c.firstName, c.lastName].filter(Boolean).join(' ') || c.contactName || c.email || '',
+        email: (c.email || '').toLowerCase().trim() || null, dateAdded: toDay(c.dateAdded),
+        soldBy: soldBy ? String(soldBy).trim() : null, subAccountId: sub ? String(sub).trim() : null,
+        soldDate: toDay(val('soldDate')), onboardingPref: val('onboardingPref') || null, buildOut: val('buildOut') || null,
+        a2pApprovedAt: toDay(val('a2pApprovedAt')), trainingDate: toDay(val('trainingDate')),
+        subscriptionStatus: val('subscriptionStatus') || null, crmStatus: val('crmStatus') || null,
+        districtOffice: val('districtOffice') ? String(val('districtOffice')).trim() : null, referrer: val('referrer') || null,
+      }
+      count++
+      if (rec.subAccountId && (!bySubAccount[rec.subAccountId] || (rec.dateAdded || '') > (bySubAccount[rec.subAccountId].dateAdded || ''))) bySubAccount[rec.subAccountId] = rec
+      if (rec.email && !byEmail[rec.email]) byEmail[rec.email] = rec
+    }
+    if (batch.length < 100) break
+    const last = batch.at(-1)
+    startAfter = last?.dateAdded ? new Date(last.dateAdded).getTime() : null
+    startAfterId = last?.id || null
+    if (!startAfter || !startAfterId) break
+  }
+  return { available: true, bySubAccount, byEmail, count }
+}
+
 // ── Freshdesk: tickets created in a window (support volume) ──────────────────
 
 export async function loadFreshdeskCreated(sinceIso) {
