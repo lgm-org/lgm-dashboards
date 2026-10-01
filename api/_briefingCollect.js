@@ -8,7 +8,7 @@
 import { classifyScore, recommendedAction } from '../src/lib/healthScoreModel.js'
 import {
   loadAccounts, loadStripe, matchBilling, ACTIVE_STRIPE, loadStats, loadHealthHistory, loadDmMap, loadMeetings,
-  loadLgmCalls, loadFreshdeskCreated, loadLgmCustomers, loadPreviousSnapshot, loadRecentItems,
+  loadLgmCalls, loadFreshdeskCreated, loadLgmCustomers, loadLgmWonSales, loadPreviousSnapshot, loadRecentItems,
   localDay, addDays, dayRange, daysBetween, daysSinceIso, inDays, avg, round2, accountLink, normalizeName, DASHBOARD_URL, reportingPeriod,
 } from './_briefingSources.js'
 
@@ -41,6 +41,7 @@ export async function buildContext(runDay = localDay()) {
     lgmCalls:  loadLgmCalls(period.start, period.end),
     freshdesk: loadFreshdeskCreated(dayRange(period.start).start.toISOString()),
     customers: loadLgmCustomers(),
+    wonSales:  loadLgmWonSales(),
   }
   const keys = Object.keys(jobs)
   const settled = await Promise.allSettled(Object.values(jobs))
@@ -55,7 +56,8 @@ export async function buildContext(runDay = localDay()) {
   const history  = src.history || {}
   const meetings = src.meetings || []
   const dmRows   = src.dmMap || []
-  const customers = src.customers || { available: false, bySubAccount: {}, byEmail: {} }
+  const customers = src.customers || { available: false, bySubAccount: {}, byEmail: {}, byContactId: {} }
+  const wonSales  = src.wonSales  || { available: false, sales: [] }
 
   // Meeting rows indexed by customer name and by GHL location id (phone calls carry it in Meeting ID)
   const meetingsByNorm = {}, meetingsByLoc = {}
@@ -85,7 +87,7 @@ export async function buildContext(runDay = localDay()) {
     return {
       soldBy: cust?.soldBy || null,
       onboarding: cust ? { preference: cust.onboardingPref, buildOut: cust.buildOut, a2pApprovedAt: cust.a2pApprovedAt, trainingDate: cust.trainingDate, subscriptionStatus: cust.subscriptionStatus, crmStatus: cust.crmStatus, districtOffice: cust.districtOffice, referrer: cust.referrer } : null,
-      id: a.ghlId, name: a.ghlName, link: accountLink(a.ghlId),
+      id: a.ghlId, name: a.ghlName, link: accountLink(a.ghlId), email: a.ghlEmail || null,
       dateAdded: a.ghlDateAdded, daysSinceAdded: a.ghlDateAdded ? daysBetween(a.ghlDateAdded, runDay) : null,
       mrr: billing ? round2(billing.totalRev) : null, stripeStatus: billing?.stripeStatus || null,
       stripeCustomerId: billing?.stripeCustomerId || null, soldDay, accountType: billing?.accountType || null,
@@ -112,10 +114,28 @@ export async function buildContext(runDay = localDay()) {
   const byNorm = {}
   for (const a of accounts) { const n = normalizeName(a.name); if (n) (byNorm[n] ||= []).push(a) }
   const byCustomerId = Object.fromEntries(accounts.filter(a => a.stripeCustomerId).map(a => [a.stripeCustomerId, a]))
+  const byEmail = {}
+  for (const a of accounts) { const e = (a.email || '').toLowerCase().trim(); if (e && !byEmail[e]) byEmail[e] = a }
+
+  // GHL won opportunities → accounts (customer record's Sub-account ID, then email, then name)
+  const sales = (wonSales.sales || []).map(w => {
+    const cust = w.contactId ? customers.byContactId?.[w.contactId] : null
+    const acct = (cust?.subAccountId && byId[cust.subAccountId])
+      || (w.contactEmail && byEmail[w.contactEmail])
+      || (byNorm[normalizeName(w.contactName)] || [])[0] || null
+    const soldBy = cust?.soldBy || w.assignedToName || null
+    if (acct) { acct.soldDay = w.wonDay || acct.soldDay; if (!acct.soldBy && soldBy) acct.soldBy = soldBy; acct.oppValue = w.monetaryValue }
+    return {
+      ref: acct ? acct.id : `sale:${w.oppId}`, oppId: w.oppId, name: acct ? acct.name : w.contactName || w.oppName,
+      link: acct?.link || null, accountId: acct?.id || null, mrr: w.monetaryValue, wonDay: w.wonDay, soldBy: soldBy || 'Unattributed',
+      score: acct?.score ?? null, band: acct?.bandLabel || 'No data', warnings: acct?.warnings || [], trend7: acct?.trend7 ?? null,
+      stage: w.stageName,
+    }
+  }).filter(x => x.wonDay)
 
   return {
     runDay, yesterday, period, beforePeriod, d7, d30, mtdStart, sourceStatus,
-    accounts, byId, byNorm, byCustomerId,
+    accounts, byId, byNorm, byCustomerId, byEmail, sales, wonSales: { available: wonSales.available, reason: wonSales.reason || null, pipeline: wonSales.pipeline || null, stage: wonSales.stage || null },
     stripe: src.stripe, meetings, meetingsByNorm, dmRows, customers, lgmCalls: src.lgmCalls || { available: false, calls: [] },
     freshdesk: src.freshdesk || { available: false },
     generatedAt: new Date().toISOString(),
@@ -163,8 +183,21 @@ function noRepeat(list, recent, itemType) {
   return { fresh, skipped: repeats.length }
 }
 
-// Sales = Stripe customers whose first subscription started in the window
+// Sales = opportunities marked Won in LGM's GHL Sales Pipeline (Payment Made stage); New MRR = opportunity value.
+// Falls back to Stripe subscription starts when the GHL pull is unavailable.
 function salesIn(ctx, fromDay, toDay) {
+  if (ctx.wonSales?.available) {
+    const items = ctx.sales.filter(x => inDays(x.wonDay, fromDay, toDay))
+    const newMrr = round2(items.reduce((s, x) => s + (x.mrr || 0), 0))
+    const byRep = {}
+    for (const x of items) {
+      const b = (byRep[x.soldBy || 'Unattributed'] ||= { sales: 0, newMrr: 0, scores: [] })
+      b.sales++; b.newMrr = round2(b.newMrr + (x.mrr || 0)); if (typeof x.score === 'number') b.scores.push(x.score)
+    }
+    for (const b of Object.values(byRep)) { b.avgHealth = avg(b.scores); delete b.scores }
+    return { source: 'ghl', sales: items.length, newMrr, avgMrrPerSale: items.length ? round2(newMrr / items.length) : null,
+             avgHealth: avg(items.map(x => x.score)), byRep, zeroValue: items.filter(x => !x.mrr).length, items, records: [] }
+  }
   const recs = Object.values(ctx.stripe?.byCustomerId || {}).filter(r => inDays(r.stripeStartDate, fromDay, toDay))
   const scores = recs.map(r => ctx.byCustomerId[r.stripeCustomerId]?.score).filter(s => typeof s === 'number')
   const newMrr = round2(recs.reduce((s, r) => s + (r.totalRev || 0), 0))
@@ -176,11 +209,13 @@ function salesIn(ctx, fromDay, toDay) {
     const sc = ctx.byCustomerId[r.stripeCustomerId]?.score; if (typeof sc === 'number') b.scores.push(sc)
   }
   for (const b of Object.values(byRep)) { b.avgHealth = avg(b.scores); delete b.scores }
-  return { sales: recs.length, newMrr, avgMrrPerSale: recs.length ? round2(newMrr / recs.length) : null, avgHealth: avg(scores), byRep, records: recs }
+  return { source: 'stripe', sales: recs.length, newMrr, avgMrrPerSale: recs.length ? round2(newMrr / recs.length) : null, avgHealth: avg(scores), byRep, zeroValue: 0, items: [], records: recs }
 }
 
 function demoIsClosed(ctx, m) {
   const cutoff = addDays(m.date, -3)
+  const won = ctx.sales.find(x => x.wonDay >= cutoff && normalizeName(x.name) === m.normCustomer)
+  if (won) return { id: won.accountId, name: won.name }
   const acct = (ctx.byNorm[m.normCustomer] || []).find(a => (a.dateAdded && a.dateAdded >= cutoff) || (a.soldDay && a.soldDay >= cutoff))
   if (acct) return acct
   const rec = ctx.stripe?.byNormName?.[m.normCustomer]
@@ -273,7 +308,14 @@ export function collectKevin(ctx) {
   }
   openFollowUps.sort((x, y) => y.demoDate.localeCompare(x.demoDate))
 
-  const recentSales = ctx.accounts.filter(a => a.soldDay && inDays(a.soldDay, ctx.d30, ctx.yesterday))
+  const recentSales = ctx.wonSales.available
+    ? ctx.sales.filter(x => inDays(x.wonDay, ctx.d30, ctx.yesterday)).sort((x, y) => y.wonDay.localeCompare(x.wonDay)).map(x => {
+        const a = x.accountId ? ctx.byId[x.accountId] : null
+        return a
+          ? { ...brief(a), mrr: x.mrr, soldDate: x.wonDay, soldBy: x.soldBy, concern: a.band === 'at_risk' ? whyAtRisk(a) : a.band === 'watch' ? a.warnings.join('; ') || 'Watch band' : null }
+          : { ref: x.ref, name: x.name, link: null, mrr: x.mrr, score: null, band: 'No data', trend7: null, warnings: [], soldDate: x.wonDay, soldBy: x.soldBy, concern: 'No linked sub-account yet (Sub-account ID missing on the LGM customer record)' }
+      })
+    : ctx.accounts.filter(a => a.soldDay && inDays(a.soldDay, ctx.d30, ctx.yesterday))
     .sort((x, y) => y.soldDay.localeCompare(x.soldDay))
     .map(a => ({ ...brief(a), concern: a.band === 'at_risk' ? whyAtRisk(a) : a.band === 'watch' ? a.warnings.join('; ') || 'Watch band' : null }))
 
@@ -281,9 +323,14 @@ export function collectKevin(ctx) {
     role: 'kevin', runDay: ctx.runDay, yesterday: ctx.yesterday, period: ctx.period, dashboard: DASHBOARD_URL,
     salesTable: table,
     kevinOwnSales: kevinOwn,
-    notes: ctx.customers.available
-      ? ['Sales = Stripe subscription starts. Rep attribution comes from the "New Customer Signed Up By" field on the LGM customer record; sales without it show as Unattributed.']
-      : ['Sales = Stripe subscription starts. Rep attribution unavailable this run (LGM customer records could not be loaded).'],
+    salesSource: windows.past30Days.source,
+    notes: [
+      windows.past30Days.source === 'ghl'
+        ? `Sales = opportunities marked Won in the GHL Sales Pipeline${ctx.wonSales.stage ? ` (${ctx.wonSales.stage.name})` : ''}; New MRR = the opportunity value.`
+        : `GHL won opportunities unavailable this run (${ctx.wonSales.reason || 'unknown'}); sales fall back to Stripe subscription starts.`,
+      windows.past30Days.zeroValue ? `${windows.past30Days.zeroValue} of the last 30 days' sales have no opportunity value in GHL and count as $0 new MRR.` : null,
+      'Rep = "New Customer Signed Up By" on the LGM customer record, else the opportunity owner.',
+    ].filter(Boolean),
     demosHeld: { yesterday: salesRows.filter(m => inDays(m.date, ctx.period.start, ctx.period.end) && m.callType === 'Meeting').length, past7Days: salesRows.filter(m => m.date >= ctx.d7 && m.callType === 'Meeting').length },
     openDemoFollowUps: openFollowUps.slice(0, 15),
     recentlyClosed: closedRecently.slice(0, 10),
@@ -450,7 +497,8 @@ export async function collectJohn(ctx, packs) {
       churnedAccounts: churnedAccounts.slice(0, 10), expandedAccounts: expandedAccounts.slice(0, 10),
       totalActiveMrr: round2(Object.values(today).filter(t => t.active).reduce((s, t) => s + t.mrr, 0)),
       activeCustomers: Object.values(today).filter(t => t.active).length,
-      note: prev ? `Expansion/churn compared with the ${prev.run_date} snapshot (the previous briefing).` : 'First run: expansion and churned MRR need a previous snapshot and will appear from the next briefing.',
+      salesSource: y.source,
+      note: `${y.source === 'ghl' ? 'Sales and New MRR = opportunities marked Won in the GHL Sales Pipeline (opportunity value).' : 'Sales fall back to Stripe subscription starts this run.'} Active MRR, expansion and churn come from Stripe${prev ? `, compared with the ${prev.run_date} snapshot` : ' (expansion/churn appear from the next briefing)'}.`,
     },
     sales: {
       demosHeldYesterday: kevin.demosHeld.yesterday, demosHeldPast7Days: kevin.demosHeld.past7Days,

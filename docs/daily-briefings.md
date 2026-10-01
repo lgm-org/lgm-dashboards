@@ -60,6 +60,14 @@ Roles: `joe` (DM growth) · `kevin` (sales + follow-up) · `rachel` (onboarding 
 Deep links: every account in an email links to `health.littlegiantmarketing.com/?account=<locationId>`,
 which opens that account's modal (HealthDashboard.jsx).
 
+## Sales source
+
+Sales and New MRR = opportunities with status **Won** in LGM's GHL Sales Pipeline (the pipeline containing the
+"Payment Made / Account Build" stage); New MRR = the opportunity's monetary value (per John, 2026-10-01).
+Opportunities map to client accounts via the LGM customer record's "Sub-account ID", then contact email, then name.
+If the GHL pull fails the run falls back to Stripe subscription starts and says so in the email. Active MRR per
+account and expansion/churn still come from Stripe.
+
 ## Data gaps (sections show "no data" until filled)
 
 - **DM → agent mapping** (`dm_agent_map`) is empty → Joe's briefing and John's DM section are placeholders until the n8n DM sync populates it.

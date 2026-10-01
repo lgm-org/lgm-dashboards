@@ -314,7 +314,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 // { bySubAccount: { locationId: rec }, byEmail: { email: rec }, count }
 export async function loadLgmCustomers() {
   const token = await lgmToken()
-  if (!token) return { available: false, reason: 'no LGM location token', bySubAccount: {}, byEmail: {}, count: 0 }
+  if (!token) return { available: false, reason: 'no LGM location token', bySubAccount: {}, byEmail: {}, byContactId: {}, count: 0 }
   const f = await ghlFetch(`/locations/${LGM_LOCATION_ID}/customFields`, token)
   if (!f.ok) return { available: false, reason: `customFields HTTP ${f.status}`, bySubAccount: {}, byEmail: {}, count: 0 }
   const idByName = {}
@@ -322,7 +322,7 @@ export async function loadLgmCustomers() {
   const ids = Object.fromEntries(Object.entries(CUSTOMER_FIELDS).map(([k, name]) => [k, idByName[name.toLowerCase()] || null]))
   if (!ids.soldBy && !ids.subAccountId) return { available: false, reason: 'customer fields not found on LGM sub-account', bySubAccount: {}, byEmail: {}, count: 0 }
 
-  const bySubAccount = {}, byEmail = {}
+  const bySubAccount = {}, byEmail = {}, byContactId = {}
   let startAfter = null, startAfterId = null, count = 0
   for (let page = 0; page < 40; page++) {
     if (page > 0) await sleep(120)
@@ -347,6 +347,7 @@ export async function loadLgmCustomers() {
       count++
       if (rec.subAccountId && (!bySubAccount[rec.subAccountId] || (rec.dateAdded || '') > (bySubAccount[rec.subAccountId].dateAdded || ''))) bySubAccount[rec.subAccountId] = rec
       if (rec.email && !byEmail[rec.email]) byEmail[rec.email] = rec
+      byContactId[rec.contactId] = rec
     }
     if (batch.length < 100) break
     const last = batch.at(-1)
@@ -354,7 +355,51 @@ export async function loadLgmCustomers() {
     startAfterId = last?.id || null
     if (!startAfter || !startAfterId) break
   }
-  return { available: true, bySubAccount, byEmail, count }
+  return { available: true, bySubAccount, byEmail, byContactId, count }
+}
+
+// ── Sales: opportunities marked Won in LGM's Sales Pipeline (per John, 2026-10-01) ──
+// "GHL >> Sales Pipeline >> Payment Made stage >> Status = Won >> Opp value" — the opportunity
+// value is the projected new MRR. The pipeline is found by its "Payment Made" stage so a rename
+// of the pipeline itself does not break this.
+export async function loadLgmWonSales() {
+  const token = await lgmToken()
+  if (!token) return { available: false, reason: 'no LGM location token', sales: [] }
+  const pr = await ghlFetch(`/opportunities/pipelines?locationId=${LGM_LOCATION_ID}`, token, 'GET', null, 3, 'v3')
+  let pipeline = null, stage = null
+  for (const pl of pr.json?.pipelines || []) {
+    const st = (pl.stages || []).find(x => /payment\s*made/i.test(x.name || ''))
+    if (st) { pipeline = pl; stage = st; break }
+  }
+  if (!pipeline) {
+    const sp = (pr.json?.pipelines || []).find(pl => /sales/i.test(pl.name || ''))
+    if (sp) pipeline = sp
+  }
+  const users = {}
+  const ur = await ghlFetch(`/users/?locationId=${LGM_LOCATION_ID}`, token)
+  for (const u of ur.json?.users || []) users[u.id] = u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email
+  const sales = []
+  for (let page = 1; page <= 10; page++) {
+    if (page > 1) await sleep(120)
+    const r = await ghlFetch(`/opportunities/search?location_id=${LGM_LOCATION_ID}&status=won&limit=100&page=${page}`, token)
+    if (!r.ok) return { available: false, reason: `opportunities/search HTTP ${r.status} ${r.text || ''}`.trim(), sales: [] }
+    const batch = r.json?.opportunities || []
+    for (const o of batch) {
+      if (pipeline && o.pipelineId !== pipeline.id) continue
+      if (String(o.status || '').toLowerCase() !== 'won') continue
+      const wonAt = o.lastStatusChangeAt || o.lastStageChangeAt || o.updatedAt || o.createdAt || null
+      sales.push({
+        oppId: o.id, oppName: o.name || '', monetaryValue: Number(o.monetaryValue) || 0,
+        wonAt, wonDay: wonAt ? localDay(new Date(wonAt)) : null,
+        contactId: o.contact?.id || o.contactId || null, contactName: o.contact?.name || (o.name || '').split(' - ')[0].trim(),
+        contactEmail: (o.contact?.email || '').toLowerCase().trim() || null,
+        assignedToName: o.assignedTo ? (users[o.assignedTo] || null) : null,
+        stageId: o.pipelineStageId, stageName: stage && o.pipelineStageId === stage.id ? stage.name : null,
+      })
+    }
+    if (batch.length < 100) break
+  }
+  return { available: true, sales, pipeline: pipeline ? { id: pipeline.id, name: pipeline.name } : null, stage: stage ? { id: stage.id, name: stage.name } : null }
 }
 
 // ── Freshdesk: tickets created in a window (support volume) ──────────────────
