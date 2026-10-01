@@ -21,6 +21,13 @@ const CRITICAL_SCORE  = 30
 
 const bandLabel = { healthy: 'Green', watch: 'Yellow', at_risk: 'Red', no_data: 'No data' }
 
+// Rep names arrive two ways: "Kevin" from the customer record, "Kevin Wyatt" from the opportunity owner.
+// Key everything by first name so the by-rep tables and kevinOwnSales line up.
+export const repKey = (name) => {
+  const first = String(name || '').trim().split(/\s+/)[0] || ''
+  return first ? first[0].toUpperCase() + first.slice(1).toLowerCase() : null
+}
+
 // ── Context: load everything once, enrich accounts ───────────────────────────
 
 export async function buildContext(runDay = localDay()) {
@@ -29,7 +36,8 @@ export async function buildContext(runDay = localDay()) {
   const beforePeriod = addDays(period.start, -1) // the day scores are compared against
   const d7  = addDays(runDay, -7)
   const d30 = addDays(runDay, -30)
-  const mtdStart = `${runDay.slice(0, 7)}-01`
+  // Month-to-date runs through yesterday; on the 1st that means the whole previous month.
+  const mtdStart = `${yesterday.slice(0, 7)}-01`
 
   const jobs = {
     accounts:  loadAccounts(),
@@ -85,7 +93,7 @@ export async function buildContext(runDay = localDay()) {
     const cust = customers.bySubAccount[a.ghlId] || (a.ghlEmail && customers.byEmail[(a.ghlEmail || '').toLowerCase().trim()]) || (billing?.stripeCustomerId && null) || null
     const soldDay = billing?.stripeStartDate || cust?.soldDate || null
     return {
-      soldBy: cust?.soldBy || null,
+      soldBy: repKey(cust?.soldBy) || null,
       onboarding: cust ? { preference: cust.onboardingPref, buildOut: cust.buildOut, a2pApprovedAt: cust.a2pApprovedAt, trainingDate: cust.trainingDate, subscriptionStatus: cust.subscriptionStatus, crmStatus: cust.crmStatus, districtOffice: cust.districtOffice, referrer: cust.referrer } : null,
       id: a.ghlId, name: a.ghlName, link: accountLink(a.ghlId), email: a.ghlEmail || null,
       dateAdded: a.ghlDateAdded, daysSinceAdded: a.ghlDateAdded ? daysBetween(a.ghlDateAdded, runDay) : null,
@@ -123,7 +131,7 @@ export async function buildContext(runDay = localDay()) {
     const acct = (cust?.subAccountId && byId[cust.subAccountId])
       || (w.contactEmail && byEmail[w.contactEmail])
       || (byNorm[normalizeName(w.contactName)] || [])[0] || null
-    const soldBy = cust?.soldBy || w.assignedToName || null
+    const soldBy = repKey(cust?.soldBy) || repKey(w.assignedToName) || null
     if (acct) { acct.soldDay = w.wonDay || acct.soldDay; if (!acct.soldBy && soldBy) acct.soldBy = soldBy; acct.oppValue = w.monetaryValue }
     return {
       ref: acct ? acct.id : `sale:${w.oppId}`, oppId: w.oppId, name: acct ? acct.name : w.contactName || w.oppName,
