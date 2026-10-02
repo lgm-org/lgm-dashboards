@@ -26,7 +26,7 @@ const Section = z.object({
   items: z.array(Item),
 })
 export const BriefingSchema = z.object({
-  headline: z.string().describe('One sentence: the single most important thing today, positive first if there is one'),
+  headline: z.string().describe('One sentence, the best positive result of the period (a sale, a win, a healthy account). Never a warning, never "but ...". If nothing positive exists, a neutral factual sentence with no judgement.'),
   went_well: z.array(Item).describe('3-5 positive results from yesterday / this week. Empty only if nothing positive is in the facts.'),
   needs_attention: z.array(Action).describe('3-8 actions, highest priority first'),
   priorities: z.array(z.string()).describe('Top 3 things this person should personally do today'),
@@ -40,6 +40,7 @@ Health scores are 0-100 (Green >= 70, Yellow 55-69, Red < 55).
 Non-negotiable rules:
 - Use ONLY the facts provided. Never invent names, numbers, dates or events. If a section has no data, say so in one short line.
 - Positive results first, actions second. Keep every item to one or two short sentences.
+- The headline is the lead of the email: ONE positive result (yesterday's sale, a closed demo, an account that improved). It must never pivot to a concern with "but", "however" or "while" — every concern belongs under needs_attention, never in the headline or in went_well.
 - Every risk must say WHY (cite the fact) and give a recommended action.
 - Highlight changes and trends (score moved, new since yesterday, repeat caller) over static numbers.
 - Items marked repeat:true were already reported recently — mention them only because they changed or are still critical, and say so.
@@ -101,10 +102,20 @@ export function collectRefs(obj, out = new Set()) {
   return out
 }
 
+// John (2026-10-01): the headline must not go straight into a negative. If the model still writes
+// "X happened, but Y is overdue", keep only the positive clause; the concern is already under needs_attention.
+export function positiveHeadline(text) {
+  let h = String(text || '').trim()
+  const m = h.match(/^(.*?\S)\s*(?:,|;|—|–|-)?\s+(?:but|however|while|yet|although|though)\b/i)
+  if (m && m[1].length >= 20) h = m[1].replace(/[,;—–-]\s*$/, '')
+  if (h && !/[.!?]$/.test(h)) h += '.'
+  return h
+}
+
 function scrub(result, refs) {
   const fix = (it) => ({ ...it, ref: it.ref && refs.has(it.ref) ? it.ref : null })
   return {
-    headline: result.headline,
+    headline: positiveHeadline(result.headline),
     went_well: (result.went_well || []).slice(0, 5).map(fix),
     needs_attention: (result.needs_attention || []).slice(0, 8).map(fix),
     priorities: (result.priorities || []).slice(0, 3),

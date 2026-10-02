@@ -32,7 +32,7 @@ const per = (facts) => facts.period?.short || 'Yesterday'
 
 export function subjectFor(role, facts, analysis) {
   const d = new Date(`${facts.runDay}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
-  return `${SUBJECTS[role]}${isWeek(facts) ? ' (week recap)' : ''} — ${d}${analysis?.headline ? `: ${analysis.headline.slice(0, 80)}` : ''}`
+  return `${SUBJECTS[role]}${isWeek(facts) ? ' (week recap)' : ''} — ${d}`
 }
 
 // ── building blocks ──────────────────────────────────────────────────────────
