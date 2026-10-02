@@ -3,7 +3,7 @@
 
 import { buildContext, collectAll, ROLES } from './_briefingCollect.js'
 import { analyze, MODEL } from './_briefingAnalyze.js'
-import { render, subjectFor } from './_briefingRender.js'
+import { render, renderText, subjectFor } from './_briefingRender.js'
 import { saveSnapshot, saveItems, logSend, localDay } from './_briefingSources.js'
 
 // Recipients: BRIEFING_RECIPIENTS = {"joe":["..."],"kevin":["..."],"rachel":["..."],"inbound":["...","..."],"john":["..."]}
@@ -21,28 +21,28 @@ export function recipientsFor(role, override = null) {
 // Two delivery paths, first one configured wins:
 //   1. Gmail SMTP  — GMAIL_USER + GMAIL_APP_PASSWORD (Google Workspace app password; 2-Step Verification required)
 //   2. Resend      — RESEND_API_KEY + a verified sending domain (https://resend.com)
-export async function sendEmail({ to, subject, html }) {
+export async function sendEmail({ to, subject, html, text }) {
   const from = process.env.BRIEFING_FROM || 'LGM Briefings <briefings@littlegiantmarketing.com>'
-  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) return sendViaGmail({ to, subject, html, from })
+  if (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) return sendViaGmail({ to, subject, html, text, from })
   const key = process.env.RESEND_API_KEY
   if (!key) throw new Error('No email provider configured: set GMAIL_USER + GMAIL_APP_PASSWORD or RESEND_API_KEY')
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to, subject, html }),
+    body: JSON.stringify({ from, to, subject, html, text }),
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(`Resend HTTP ${res.status}: ${body?.message || JSON.stringify(body).slice(0, 200)}`)
   return body.id || null
 }
 
-async function sendViaGmail({ to, subject, html, from }) {
+async function sendViaGmail({ to, subject, html, text, from }) {
   const { default: nodemailer } = await import('nodemailer')
   const user = process.env.GMAIL_USER
   const transport = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user, pass: process.env.GMAIL_APP_PASSWORD } })
   // Gmail only sends as the authenticated user (or one of its verified aliases); keep the display name from BRIEFING_FROM
   const name = (from.match(/^(.*?)\s*</) || [])[1] || 'LGM Briefings'
-  const info = await transport.sendMail({ from: `${name} <${user}>`, to, subject, html })
+  const info = await transport.sendMail({ from: `${name} <${user}>`, to, subject, html, text })
   return info.messageId || null
 }
 
@@ -72,13 +72,14 @@ export async function runBriefings(opts = {}) {
       }
     }
     const html = render(role, facts, analysis)
+    const text = renderText(role, facts, analysis)
     const subject = subjectFor(role, facts, analysis)
-    out.subject = subject; out.html = html; out.analysis = analysis; out.facts = facts
+    out.subject = subject; out.html = html; out.text = text; out.analysis = analysis; out.facts = facts
 
     if (opts.send) {
       if (!out.recipients.length) { out.status = 'not_sent'; out.sendError = 'no recipients configured (BRIEFING_RECIPIENTS / BRIEFING_TEST_TO)' }
       else {
-        try { out.messageId = await sendEmail({ to: out.recipients, subject, html }); out.status = 'sent' }
+        try { out.messageId = await sendEmail({ to: out.recipients, subject, html, text }); out.status = 'sent' }
         catch (err) { out.status = 'send_failed'; out.sendError = err.message; console.error('[briefing] send failed', role, err.message) }
       }
     }

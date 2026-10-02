@@ -175,9 +175,27 @@ const RAW = { rachel: rawRachel, kevin: rawKevin, joe: rawJoe, inbound: rawInbou
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
+// What mail clients show as the preview line: the headline, never the logo URL.
+export function previewText(role, facts, analysis) {
+  const head = analysis?.headline || `${SUBJECTS[role]} for ${facts.period?.label || 'yesterday'}.`
+  return head.length > 140 ? head.slice(0, 137).replace(/\s+\S*$/, '') + '…' : head
+}
+
+// Plain-text alternative (used by Gmail/Outlook previews and text-only clients)
+export function renderText(role, facts, analysis) {
+  const a = analysis
+  const lines = [SUBJECTS[role], '', `Good morning, ${GREETING[role]}.`, '', previewText(role, facts, analysis), '']
+  if (a?.went_well?.length) { lines.push('WHAT WENT WELL'); for (const i of a.went_well) lines.push(`- ${i.text}`); lines.push('') }
+  if (a?.needs_attention?.length) { lines.push('NEEDS ATTENTION'); for (const x of a.needs_attention) lines.push(`- [${x.priority}] ${x.title}: ${x.action}`); lines.push('') }
+  if (a?.priorities?.length) { lines.push('TOP 3 TODAY'); a.priorities.forEach((t, i) => lines.push(`${i + 1}. ${t}`)); lines.push('') }
+  lines.push(`Open the dashboard: ${facts.dashboard}`)
+  return lines.join('\n')
+}
+
 export function render(role, facts, analysis) {
   const linkMap = buildLinkMap(facts)
   const a = analysis || { headline: 'AI summary unavailable — raw data below.', went_well: [], needs_attention: [], priorities: [], role_sections: [] }
+  const preheader = previewText(role, facts, analysis)
   const dateLabel = new Date(`${facts.runDay}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
   const failed = Object.entries(facts.sourceStatus || {}).filter(([, v]) => v !== 'ok')
   const isJohn = role === 'john'
@@ -192,6 +210,7 @@ export function render(role, facts, analysis) {
   ].join('')
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(SUBJECTS[role])}</title></head>
 <body style="margin:0;padding:0;background:${C.bg};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${C.bg};opacity:0">${esc(preheader)}${'&nbsp;&zwnj;'.repeat(40)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.bg}"><tr><td align="center" style="padding:16px 8px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:720px;background:#fff;border-radius:16px;border:1px solid ${C.border};overflow:hidden">
   <tr><td style="background:#fff;padding:16px 24px 12px;border-bottom:1px solid ${C.border}">
