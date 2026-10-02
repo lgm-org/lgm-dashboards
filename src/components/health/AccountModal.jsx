@@ -120,7 +120,98 @@ function SubScoreBar({ label, score }) {
   )
 }
 
-export default function AccountModal({ account, onClose }) {
+// Team notes on this sub-account — stored in Supabase (source of truth) and mirrored as a regular
+// note onto the client's contact in LGM's own GHL sub-account.
+function NotesPanel({ locationId }) {
+  const [notes, setNotes]     = useState(null)
+  const [draft, setDraft]     = useState('')
+  const [saving, setSaving]   = useState(false)
+  const [error, setError]     = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setNotes(null)
+    fetch(`/api/account-notes?locationId=${encodeURIComponent(locationId)}`)
+      .then(r => r.ok ? r.json() : r.json().then(d => Promise.reject(new Error(d.error || `HTTP ${r.status}`))))
+      .then(d => { if (!cancelled) setNotes(d.notes || []) })
+      .catch(err => { if (!cancelled) { setNotes([]); setError(err.message) } })
+    return () => { cancelled = true }
+  }, [locationId])
+
+  const submit = async () => {
+    const text = draft.trim()
+    if (!text || saving) return
+    setSaving(true); setError(null)
+    try {
+      const r = await fetch('/api/account-notes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locationId, body: text }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`)
+      setNotes(prev => [d.note, ...(prev || [])])
+      setDraft('')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const fmtWhen = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+  return (
+    <div className="rounded-xl border border-brand-border p-4">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-brand-muted flex items-center gap-1">
+          Team Notes
+          <InfoTip
+            position="bottom-start"
+            text={"Notes left here are visible to the whole team on this account.\nEach note is also mirrored as a regular note on this client's contact in LGM's own GHL sub-account (the contact whose 'Sub-account ID' custom field matches this account). If no matching contact exists, the note still saves here and shows a 'not mirrored' flag."}
+          />
+        </p>
+        {notes && <span className="text-[10px] text-brand-muted">{notes.length} note{notes.length === 1 ? '' : 's'}</span>}
+      </div>
+      <div className="flex gap-2 items-start">
+        <textarea
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submit() }}
+          placeholder="Leave a note for the team… (⌘/Ctrl+Enter to save)"
+          rows={2}
+          className="flex-1 text-[12px] border border-brand-border rounded-lg px-3 py-2 bg-brand-bg focus:outline-none focus:border-brand-green resize-y"
+        />
+        <button
+          onClick={submit}
+          disabled={saving || !draft.trim()}
+          className="px-3 py-2 rounded-lg text-white text-[11px] font-semibold disabled:opacity-40 flex-shrink-0"
+          style={{ background: G }}
+        >
+          {saving ? 'Saving…' : 'Add note'}
+        </button>
+      </div>
+      {error && <p className="text-[11px] text-red-600 mt-1.5">{error}</p>}
+      <div className="mt-3 space-y-2">
+        {notes === null && <p className="text-[11px] text-brand-muted">Loading notes…</p>}
+        {notes && notes.length === 0 && !error && <p className="text-[11px] text-brand-muted/70">No notes yet.</p>}
+        {(notes || []).map(n => (
+          <div key={n.id} className="rounded-lg bg-brand-bg/60 border border-brand-border px-3 py-2">
+            <p className="text-[12px] text-brand-text whitespace-pre-wrap">{n.body}</p>
+            <p className="text-[10px] text-brand-muted mt-1 flex flex-wrap items-center gap-x-2">
+              <span className="font-semibold">{n.author_name || n.author_email || 'Team'}</span>
+              <span>{fmtWhen(n.created_at)}</span>
+              {n.ghl_note_id
+                ? <span style={{ color: G }}>· mirrored to GHL</span>
+                : <span className="text-amber-700" title={n.mirror_error || ''}>· not mirrored to GHL{n.mirror_error ? ` (${n.mirror_error})` : ''}</span>}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function AccountModal({ account, onClose, actions = {}, setActionDone }) {
   const { isAdmin } = useRole()
   const [ghlData,    setGhlData]    = useState(null)
   const [ghlLoading, setGhlLoading] = useState(false)
@@ -442,7 +533,33 @@ export default function AccountModal({ account, onClose }) {
             <p className="text-[12px]" style={{ color: band === 'at_risk' ? RED : band === 'watch' ? AMB : band === 'no_data' ? GREY : '#3a6b10' }}>
               {action}
             </p>
+            {(() => {
+              const mark = actions[account.id] || actions[account.ghlId] || null
+              const sameAction = mark && (!mark.action_text || mark.action_text === action)
+              const when = mark?.done_at ? new Date(mark.done_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
+              return (
+                <label className="mt-2 flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 accent-[#8CC63F]"
+                    checked={!!mark}
+                    disabled={!setActionDone}
+                    onChange={e => setActionDone?.(account.id, action, e.target.checked).catch(() => {})}
+                  />
+                  <span className="text-[11px] text-brand-text">
+                    {mark
+                      ? <>Action taken by <strong>{mark.done_by_name || mark.done_by_email || 'team'}</strong>{when ? ` · ${when}` : ''}
+                          {!sameAction && <span className="block text-[10px] text-amber-700">Marked for an earlier recommendation: "{mark.action_text}". Untick and re-tick once this one is done.</span>}
+                        </>
+                      : <>Mark action taken <span className="text-brand-muted">— visible to the whole team</span></>}
+                  </span>
+                </label>
+              )
+            })()}
           </div>
+
+          {/* Team notes */}
+          <NotesPanel locationId={account.ghlId || account.id} />
 
           {/* GHL location details */}
           <div className="rounded-xl border border-brand-border p-4 grid grid-cols-2 gap-3 text-[12px]">

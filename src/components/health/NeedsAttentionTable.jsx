@@ -144,6 +144,14 @@ function AccountRow({ a, i, getStatus, getResolvedAt, setStatus, onAccountClick 
       </td>
       <td className="px-3 py-3 max-w-[200px]">
         <p className="text-[11px] text-brand-muted leading-snug">{a._health?.action ?? '—'}</p>
+        {a._actionMark && (
+          <p className="text-[10px] font-semibold mt-0.5" style={{ color: G }}
+            title={a._actionMark.action_text && a._actionMark.action_text !== a._health?.action ? `Marked for an earlier recommendation: ${a._actionMark.action_text}` : undefined}>
+            ✓ Action taken by {a._actionMark.done_by_name || a._actionMark.done_by_email || 'team'}
+            {a._actionMark.done_at ? ` · ${new Date(a._actionMark.done_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+            {a._actionMark.action_text && a._actionMark.action_text !== a._health?.action ? ' (earlier recommendation)' : ''}
+          </p>
+        )}
       </td>
       <td className="px-3 py-3">
         <div className="flex flex-col gap-1">

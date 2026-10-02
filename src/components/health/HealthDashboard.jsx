@@ -4,6 +4,7 @@ import { useMergedHealthData }    from '../../hooks/useMergedHealthData'
 import { useAccountStatus }       from '../../hooks/useAccountStatus'
 import { useDmAgentMap }          from '../../hooks/useDmAgentMap'
 import { useNewSalesMrr }         from '../../hooks/useNewSalesMrr'
+import { useAccountActions }      from '../../hooks/useAccountActions'
 import { useRole }                from '../../contexts/RoleContext'
 import { scoreAccount, classify, isAtRisk, recommendAction, isUpsellReady, suggestAddon, billableUsers } from '../../lib/healthEngine'
 import HealthFilterBar            from './HealthFilterBar'
@@ -105,6 +106,7 @@ export default function HealthDashboard({ filters, setFilters }) {
   const { statuses, setStatus } = useAccountStatus()
   const { dmMap, dmList, dmLoaded } = useDmAgentMap()
   const newSales                    = useNewSalesMrr()
+  const { actions, setActionDone }  = useAccountActions()
   const [selectedAccount, setSelectedAccount] = useState(null)
   // Deep link from the daily briefing emails: /?account=<ghlLocationId> opens that account's modal once data is loaded
   const deepLinkHandled = useRef(false)
@@ -240,9 +242,9 @@ export default function HealthDashboard({ filters, setFilters }) {
       // This overrides Stripe price-detection and Cliff sheet for accounts in the footprint.
       // Same classification as the DM Footprint tab: listed under a DM → Agent, otherwise Direct
       const accountType = dmEntry?.dmName ? 'Agent' : 'Direct'
-      return { ...a, accountType, _health: { score, parts, band, action }, _dm: dmEntry }
+      return { ...a, accountType, _health: { score, parts, band, action }, _dm: dmEntry, _actionMark: actions[a.id] || null }
     }),
-    [raw, dmMap]
+    [raw, dmMap, actions]
   )
 
   // Apply filters
@@ -790,6 +792,8 @@ export default function HealthDashboard({ filters, setFilters }) {
         <AccountModal
           account={selectedAccount}
           onClose={() => setSelectedAccount(null)}
+          actions={actions}
+          setActionDone={setActionDone}
         />
       )}
 
