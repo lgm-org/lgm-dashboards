@@ -23,9 +23,9 @@ const prioPill = (p) => `<span style="display:inline-block;padding:2px 8px;borde
 
 const SUBJECTS = {
   joe: 'DM Growth Briefing', kevin: 'Sales + Follow-Up Briefing', rachel: 'Client Relations Briefing',
-  inbound: 'Inbound Call Briefing', john: 'CEO Daily Briefing',
+  inbound: 'Client Coordinators Briefing', john: 'CEO Daily Briefing',
 }
-const GREETING = { joe: 'Joe', kevin: 'Kevin', rachel: 'Rachel', inbound: 'Team', john: 'John' }
+const GREETING = { joe: 'Joe', kevin: 'Kevin', rachel: 'Rachel', inbound: 'Client Coordinators', john: 'John' }
 
 const isWeek = (facts) => facts.period?.kind === 'week'
 const per = (facts) => facts.period?.short || 'Yesterday'
@@ -89,6 +89,25 @@ export function buildLinkMap(obj, out = {}) {
 
 // ── raw data per role ────────────────────────────────────────────────────────
 
+function cohortsSection(cohorts) {
+  if (!cohorts?.length) return ''
+  const summary = table(['New clients', 'Count', 'Avg health', 'Red', 'No data'], cohorts.map(c => [esc(c.label), num(c.count), num(c.avgHealth), num(c.red), num(c.noData)]))
+  const lists = cohorts.filter(c => c.count).map(c => `<div style="height:8px"></div><div style="font-size:12px;font-weight:700;color:${C.heading};margin:6px 0 4px">${esc(c.label)} · ${c.count} account${c.count === 1 ? '' : 's'} · avg health ${num(c.avgHealth)}</div>` +
+    table(['Account', 'Health', 'MRR', 'Age', 'Calls 7d', 'Onboarding', 'Sold by'], c.accounts.map(a => acctRow(a, [`${a.ageDays}d`, num(a.calls7d), esc(a.onboarding), esc(a.soldBy || '—')])))).join('')
+  return section('New clients by age', summary + lists, C.heading)
+}
+
+function upsellSection(u) {
+  if (!u) return ''
+  const rows = (list) => table(['Account', 'Health', 'MRR', 'Calls 7d', 'Users', 'Current add-ons', 'Pitch', 'Est. extra / mo'],
+    list.map(a => acctRow(a, [num(a.calls7d), num(a.users), esc(a.currentAddOns.join(', ') || 'none'), esc(a.suggestion), money(a.estExtraMrr)])))
+  const body = `<div style="font-size:12px;font-weight:700;color:${C.red};margin:0 0 4px">High priority (one add-on already) · ${u.highPriority.length}</div>` + rows(u.highPriority) +
+    `<div style="height:8px"></div><div style="font-size:12px;font-weight:700;color:${C.orange};margin:6px 0 4px">No add-ons yet · ${u.standard.length}</div>` + rows(u.standard) +
+    p(`<span style="color:${C.muted};font-size:12px">${esc(u.rule)}${u.hiddenUnflagged ? ` ${u.hiddenUnflagged} unflagged account${u.hiddenUnflagged === 1 ? '' : 's'} hidden.` : ''} Potential: ${money(u.potentialMrr)}/mo.</span>`)
+  return section(`Upsell opportunities (${UPSELL_CALLS_7D_LABEL}+ calls in 7 days)`, body, C.green)
+}
+const UPSELL_CALLS_7D_LABEL = 300
+
 const acctRow = (a, extra = []) => [link(a.name, a.link), scoreCell(a.score, a.band, a.trend7), money(a.mrr), ...extra]
 
 function rawRachel(f) {
@@ -97,6 +116,7 @@ function rawRachel(f) {
     section('New client stats', table(['Period', 'New clients', 'Avg health'], [['Past 7 days', num(s.past7Days.newClients), num(s.past7Days.avgHealth)], ['Past 30 days', num(s.past30Days.newClients), num(s.past30Days.avgHealth)]]), C.heading),
     section('New accounts (past 30 days)', table(['Account', 'Health', 'MRR', 'Signed up', 'Onboarding', 'Last meeting', 'Last activity'],
       f.newAccounts.map(a => acctRow(a, [esc(a.signupDate), esc(a.onboardingStatus), a.lastMeeting ? `${esc(a.lastMeeting.date)} · ${esc(a.lastMeeting.category)}` : '—', a.lastActivityAt ? esc(a.lastActivityAt.slice(0, 10)) : '—']))), C.heading),
+    cohortsSection(f.newClientCohorts),
     section(`Retention hit list — Red accounts (${s.totalRedAccounts} total${s.atRiskSkippedAsRepeats ? `, ${s.atRiskSkippedAsRepeats} unchanged repeats hidden` : ''})`,
       table(['Account', 'Health', 'MRR', 'Why', 'Recommended action', 'Owner'], f.topAtRiskOverall.map(a => acctRow(a, [esc(a.why) + (a.repeat ? ` <span style="color:${C.muted}">(flagged ${esc(a.previouslyFlagged)}, was ${a.previousScore})</span>` : ''), esc(a.recommendedAction), esc(a.suggestedOwner)]))), C.red),
   ].join('')
@@ -115,6 +135,7 @@ function rawKevin(f) {
       f.openDemoFollowUps.map(d => [`<strong>${esc(d.prospect)}</strong>`, esc(d.demoDate), esc(d.source), esc(d.rep), `${prioPill(d.suggestedPriority)} ${esc(d.status)}`, esc(d.followUpDate || '—'), esc((d.actionItems || d.summary || '').slice(0, 180))])), C.orange),
     section('Recently closed after a demo', table(['Prospect', 'Demo', 'Closed as'], f.recentlyClosed.map(d => [esc(d.prospect), esc(d.demoDate), esc(d.closedAs)])), C.green),
     section('Recent sales health (sold in the past 30 days)', table(['Account', 'Health', 'MRR', 'Sold', 'Sold by', 'Concern'], f.recentSalesHealth.map(a => acctRow(a, [esc(a.soldDate), esc(a.soldBy || '—'), esc(a.concern || '—')]))), C.heading),
+    upsellSection(f.upsellOpportunities),
   ].join('')
 }
 
@@ -141,6 +162,7 @@ function rawInbound(f) {
     section(`Call breakdown (analysed calls, ${f.period?.label || 'yesterday'})`, table(['Customer', 'Handled by', isWeek(f) ? 'Date' : 'Time', 'Min', 'Reason', 'Result', 'Follow-up', 'Owner', 'Summary'],
       f.callBreakdown.map(c => [link(c.customer, c.link), esc(c.employee), esc(isWeek(f) ? c.date : c.time), num(c.durationMin), esc(c.reason), esc(c.result), c.followUpNeeded ? '<strong>Yes</strong>' : 'No', esc(c.owner), esc(c.summary.slice(0, 200))])), C.heading),
     section('Repeat callers (past 7 days)', table(['Customer', 'Calls', 'Last reason', 'Last status'], f.repeatCallers.map(r => [esc(r.customer), num(r.calls7d), esc(r.lastReason), esc(r.lastStatus)])), C.orange),
+    cohortsSection(f.newClientCohorts),
   ].join('')
 }
 
@@ -153,6 +175,7 @@ function rawJohn(f) {
       p(`<span style="color:${C.muted};font-size:12px">${esc(r.note)}</span>`) +
       (r.churnedAccounts.length ? table(['Churned since the last briefing', 'MRR'], r.churnedAccounts.map(c => [link(c.name, c.link), money(c.mrr)])) : ''), C.heading),
     section('2 · Sales', kpis([[`Demos ${per(f).toLowerCase()}`, num(s.demosHeldYesterday)], ['Demos 7d', num(s.demosHeldPast7Days)], ['Close rate 30d', pct(s.closeRatePct)], ['Avg MRR / sale', money(s.avgMrrPerSalePast30Days)]]) +
+      (s.upsell ? kpis([['Upsell: high priority', num(s.upsell.highPriority)], ['Upsell: no add-ons', num(s.upsell.standard)], ['Upsell potential / mo', money(s.upsell.potentialMrr)]]) : '') +
       (s.byRepPast30Days && Object.keys(s.byRepPast30Days).length ? table(['Sold by (MTD · 30d)', 'Sales', 'New MRR', 'Avg health'], Object.entries(s.byRepPast30Days).map(([r, b]) => [esc(r), `${num(s.byRepMtd?.[r]?.sales ?? 0)} · ${num(b.sales)}`, `${money(s.byRepMtd?.[r]?.newMrr ?? 0)} · ${money(b.newMrr)}`, num(b.avgHealth)])) + `<div style="height:8px"></div>` : '') +
       (s.importantLostDemos.length ? table(['Important open demos', 'Demo', 'Rep', 'Status'], s.importantLostDemos.map(x => [`<strong>${esc(x.prospect)}</strong>`, esc(x.demoDate), esc(x.rep), esc(x.status)])) : ''), C.heading),
     section('3 · Customer health', kpis([['Avg health', num(h.avgHealth)], ['Red', `<span style="color:${C.red}">${num(h.bands.red)}</span>`], ['Yellow', `<span style="color:${C.yellow}">${num(h.bands.yellow)}</span>`], ['Green', `<span style="color:${C.green}">${num(h.bands.green)}</span>`], ['No data', num(h.bands.noData)]]) +

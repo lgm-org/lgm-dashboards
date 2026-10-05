@@ -20,11 +20,18 @@ function contactedAgo(ts) {
   return `${Math.floor(h / 24)}d ago`
 }
 
+const DISMISS_DAYS = 30
+function backOn(ts) {
+  return new Date(ts + DISMISS_DAYS * 86_400_000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 function UpsellRow({ a, i, isContacted, toggleContacted, getContactedAt, onAccountClick }) {
-  const { label, estExtra } = suggestAddon(a)
+  const { label, estExtra, priority } = suggestAddon(a)
   const contacted           = isContacted(a.id)
   const contactedAt         = getContactedAt(a.id)
-  const lcWallet            = a.lcWalletCharges ?? 0
+  const calls7d             = a.calls7d ?? null
+  const addOns              = [a.hasLeadFlow ? 'LeadFlow AI' : null, a.hasCallCoach ? 'AI Call Coach' : null].filter(Boolean)
+  if (!addOns.length && (a.addOnItems || []).length) addOns.push(...a.addOnItems.map(x => x.nickname || 'Add-on'))
 
   return (
     <tr key={a.id}
@@ -46,16 +53,29 @@ function UpsellRow({ a, i, isContacted, toggleContacted, getContactedAt, onAccou
         </div>
       </td>
 
-      {/* LC Wallet — actual platform usage signal */}
+      {/* Priority */}
       <td className="px-3 sm:px-4 py-3">
-        {lcWallet > 0
-          ? <span className="num text-[12px] font-semibold" style={{ color: '#7c3aed' }}>${Math.round(lcWallet).toLocaleString()}</span>
-          : <span className="text-brand-muted text-[11px]">—</span>}
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border"
+          style={priority === 'High' ? { color: '#B91C1C', borderColor: '#FCA5A5', background: '#FEF2F2' } : { color: '#C2410C', borderColor: '#FDBA74', background: '#FFF7ED' }}>
+          {priority === 'High' ? 'HIGH' : 'Upsell'}
+        </span>
+      </td>
+
+      {/* Calls in the past 7 days — the qualifying signal */}
+      <td className="px-3 sm:px-4 py-3">
+        <span className="num text-[12px] font-semibold" style={{ color: '#7c3aed' }}>{calls7d === null ? '—' : calls7d.toLocaleString()}</span>
       </td>
 
       {/* Users */}
       <td className="px-3 sm:px-4 py-3">
         <span className="num text-[12px] text-brand-text">{a.users > 0 ? a.users : '—'}</span>
+      </td>
+
+      {/* Current add-ons */}
+      <td className="px-3 sm:px-4 py-3">
+        {addOns.length
+          ? <span className="text-[11px] text-brand-text">{addOns.join(', ')}</span>
+          : <span className="text-brand-muted text-[11px]">none</span>}
       </td>
 
       {/* Current Rev */}
@@ -84,10 +104,10 @@ function UpsellRow({ a, i, isContacted, toggleContacted, getContactedAt, onAccou
               : { color: G, background: `${G}10`, borderColor: `${G}30` }
             }
           >
-            {contacted ? 'Undo' : 'Mark Contacted'}
+            {contacted ? 'Re-flag' : 'Unflag'}
           </button>
           {contacted && contactedAt && (
-            <span className="text-[10px] text-brand-muted">Contacted {contactedAgo(contactedAt)}</span>
+            <span className="text-[10px] text-brand-muted">Unflagged {contactedAgo(contactedAt)} · back on {backOn(contactedAt)}</span>
           )}
         </div>
       </td>
@@ -97,12 +117,14 @@ function UpsellRow({ a, i, isContacted, toggleContacted, getContactedAt, onAccou
 
 const UPSELL_HEADERS = [
   { label: 'Account',        tip: 'Account name + type from the DM Footprint: Agent = assigned to a District Manager, Direct = no DM assigned.' },
-  { label: 'LC Wallet',      tip: 'Cumulative LC platform spend (SMS, AI, calls, email). High spend = actively using the platform = strongest upsell signal.' },
-  { label: 'Users',          tip: 'Current billed user seat count from Stripe. Fewer than 4 = room to grow seats.' },
+  { label: 'Priority',       tip: 'HIGH = 300+ calls in 7 days and exactly one add-on (sell the second). Upsell = 300+ calls and no add-ons yet.' },
+  { label: 'Calls (7d)',     tip: 'Calls in the past 7 days from GHL — the qualifying signal (300+).' },
+  { label: 'Users',          tip: 'Billed additional user seats from Stripe (the admin seat is included in the base plan). AI Call Coach is $50 per user.' },
+  { label: 'Add-ons',        tip: 'Add-ons currently on the Stripe subscription: LeadFlow AI ($50/mo) and/or AI Call Coach ($50/user/mo).' },
   { label: 'Current Rev',    tip: 'Total monthly charges currently billed — the baseline before any upsell.' },
-  { label: 'Suggested Add-on', tip: 'Best upsell based on LC usage, seat count, add-on gaps, and plan type.' },
-  { label: 'Est. Extra/mo',  tip: 'Estimated MRR increase if the suggested add-on or upgrade is sold.' },
-  { label: 'Action',         tip: 'Track whether your team has reached out. Marked contacts are dimmed so you focus on fresh opportunities.' },
+  { label: 'Suggested Add-on', tip: 'The add-on the account does not have yet.' },
+  { label: 'Est. Extra/mo',  tip: 'Monthly MRR if the suggested add-on is sold: LeadFlow AI $50, AI Call Coach $50 × users.' },
+  { label: 'Action',         tip: 'Unflag drops the account off this list and off the Sales daily briefing for 30 days; it comes back automatically after that if it still qualifies.' },
 ]
 
 function UpsellRows({ rows, isContacted, toggleContacted, getContactedAt, onAccountClick }) {
@@ -134,11 +156,17 @@ function UpsellRows({ rows, isContacted, toggleContacted, getContactedAt, onAcco
 export default function UpsellTable({ accounts, hasBilling = false, stripeLoading = false, isContacted, toggleContacted, getContactedAt, onAccountClick, potentialMRR }) {
   const [page, setPage] = useState(1)
 
-  const sorted = useMemo(() =>
-    [...accounts].sort((a, b) => suggestAddon(b).estExtra - suggestAddon(a).estExtra),
+  const sortedAll = useMemo(() =>
+    [...accounts].sort((a, b) => {
+      const pa = suggestAddon(a).priority === 'High' ? 1 : 0, pb = suggestAddon(b).priority === 'High' ? 1 : 0
+      return (pb - pa) || ((b.calls7d ?? 0) - (a.calls7d ?? 0)) || (suggestAddon(b).estExtra - suggestAddon(a).estExtra)
+    }),
     [accounts]
   )
-  const contacted = sorted.filter(a => isContacted(a.id)).length
+  const unflagged = sortedAll.filter(a => isContacted(a.id))
+  const sorted    = sortedAll.filter(a => !isContacted(a.id))
+  const contacted = unflagged.length
+  const [showUnflagged, setShowUnflagged] = useState(false)
 
   // Reset to page 1 whenever the incoming accounts list changes (filters applied upstream)
   const accountsKey = accounts.length
@@ -164,11 +192,11 @@ export default function UpsellTable({ accounts, hasBilling = false, stripeLoadin
               Upsell Opportunities
             </h2>
             <p className="text-brand-muted text-[11px] mt-0.5">
-              {accounts.length} accounts ready · {contacted} contacted
+              {sorted.length} flagged · {sorted.filter(a => suggestAddon(a).priority === 'High').length} high priority · {contacted} unflagged (hidden 30 days)
             </p>
           </div>
           <InfoTip
-            text={"Upsell rules — ALL must be true:\n1. Stripe plan price > $0 (active paying subscription)\n2. Last GHL activity ≤ 60 days ago\n3. Engaged: ≥1 user seat OR any LC wallet spend\n4. Headroom: fewer than 4 user seats OR no add-ons yet\n\nSuggested add-on (first match wins):\n• LC spend > $100 & no add-ons → LeadFlow AI (+$50)\n• No add-ons → LeadFlow AI (+$50)\n• 1–2 seats → add seats to 3 ($64 each)\n• DM on monthly plan ≥ $200 → annual plan\n• Otherwise → seat expansion / plan upgrade (+20% of plan)\n\nBilled users = the additional-user seats on the Stripe subscription (the first admin seat is included in the base plan and never billed). Sorted by estimated extra MRR."}
+            text={"Upsell rule (John, Oct 2026):\n• 300+ calls in the past 7 days AND no add-ons → Upsell\n• 300+ calls in the past 7 days AND exactly one add-on → HIGH priority\n\nAdd-ons: LeadFlow AI ($50/mo) · AI Call Coach ($50 per user/mo).\n\nUnflag removes an account from this list and from the Sales daily briefing for 30 days; after that it is flagged again automatically if it still qualifies.\n\nSorted: high priority first, then most calls."}
             position="top-end"
           />
         </div>
@@ -200,8 +228,8 @@ export default function UpsellTable({ accounts, hasBilling = false, stripeLoadin
           <div>
             <p className="text-brand-heading font-semibold text-sm">No Upsell Candidates Right Now</p>
             <p className="text-brand-muted text-[12px] mt-1.5 leading-relaxed max-w-[360px]">
-              Accounts qualify when they have high platform usage (DataHealthStatus) and 3+ users.
-              This will populate once DataHealthStatus data is synced from Cliff's system.
+              Accounts qualify with 300+ calls in the past 7 days and room for an add-on
+              (LeadFlow AI or AI Call Coach). Unflagged accounts return after 30 days.
             </p>
           </div>
         </div>
@@ -230,6 +258,19 @@ export default function UpsellTable({ accounts, hasBilling = false, stripeLoadin
             </p>
           </div>
           <UpsellRows rows={topOpportunities} isContacted={isContacted} toggleContacted={toggleContacted} getContactedAt={getContactedAt} onAccountClick={onAccountClick} />
+
+          {unflagged.length > 0 && (
+            <div className="px-4 sm:px-6 py-3 border-t border-brand-border">
+              <button onClick={() => setShowUnflagged(v => !v)} className="text-[11px] font-semibold text-brand-muted hover:text-brand-heading">
+                {showUnflagged ? '▾' : '▸'} Unflagged — hidden for 30 days ({unflagged.length})
+              </button>
+              {showUnflagged && (
+                <div className="mt-2 -mx-4 sm:-mx-6">
+                  <UpsellRows rows={unflagged} isContacted={isContacted} toggleContacted={toggleContacted} getContactedAt={getContactedAt} onAccountClick={onAccountClick} />
+                </div>
+              )}
+            </div>
+          )}
 
           {rest.length > 0 && (
             <>

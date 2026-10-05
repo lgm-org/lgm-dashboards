@@ -17,6 +17,16 @@ export function normalizeName(n) {
     .trim()
 }
 
+// Add-on products (John, 2026-10-05): LeadFlow AI ($50/mo) and AI Call Coach ($50/user/mo).
+// Detected from the Stripe price nickname; addOnItems is returned so the names can be verified.
+export const ADD_ON_PATTERNS = { leadFlow: /lead\s*flow/i, callCoach: /call\s*coach|ai\s*assistant|coach/i }
+export function addOnFlags(items) {
+  const hasLeadFlow  = items.some(i => ADD_ON_PATTERNS.leadFlow.test(i.nickname))
+  const hasCallCoach = items.some(i => ADD_ON_PATTERNS.callCoach.test(i.nickname))
+  const addOnCount   = ((hasLeadFlow ? 1 : 0) + (hasCallCoach ? 1 : 0)) || (items.length ? 1 : 0)
+  return { addOnItems: items, hasLeadFlow, hasCallCoach, addOnCount }
+}
+
 // Normalize phone to 10 digits (strip country code if present)
 export function normalizePhone(p) {
   const d = (p || '').replace(/\D/g, '')
@@ -120,6 +130,7 @@ export async function buildStripeBilling(key) {
       let planInterval = 'month'
       let monthlyUserSub = 0
       let addOns = 0
+      const addOnItems = []
       let userCount = 0
       let primaryStatus = 'canceled'
       let primarySubId = null
@@ -158,6 +169,7 @@ export async function buildStripeBilling(key) {
             nick.includes('addon')
           ) {
             addOns += monthlyEquiv * qty
+            addOnItems.push({ nickname: plan.nickname || '', qty, monthly: Math.round(monthlyEquiv * qty * 100) / 100 })
           } else {
             // Base plan — keep the highest-value one if there are multiple
             if (monthlyEquiv > planPrice) {
@@ -222,6 +234,7 @@ export async function buildStripeBilling(key) {
         planPrice:       Math.round(planPrice       * 100) / 100,
         monthlyUserSub:  Math.round(monthlyUserSub  * 100) / 100,
         addOns:          Math.round(addOns          * 100) / 100,
+        ...addOnFlags(addOnItems),
         totalRev:        Math.round(totalRev        * 100) / 100,
         users:           userCount,
         accountType:     isDM ? 'DM' : 'Agent',
@@ -247,6 +260,7 @@ export async function buildStripeBilling(key) {
       let primaryStatus = 'canceled', primarySubId = null, startDate = null, canceledAt = null
       let planPrice = 0, planNickname = '', planInterval = 'month'
       let monthlyUserSub = 0, addOns = 0, userCount = 0
+      const addOnItems = []
 
       for (const sub of subs) {
         if ((STATUS_PRIORITY[sub.status] ?? 9) < (STATUS_PRIORITY[primaryStatus] ?? 9)) {
@@ -266,6 +280,7 @@ export async function buildStripeBilling(key) {
             monthlyUserSub += monthlyEquiv * qty; userCount += qty
           } else if (nick.includes('leadflow') || nick.includes('ai assistant') || nick.includes('add-on') || nick.includes('addon')) {
             addOns += monthlyEquiv * qty
+            addOnItems.push({ nickname: plan.nickname || '', qty, monthly: Math.round(monthlyEquiv * qty * 100) / 100 })
           } else {
             if (monthlyEquiv > planPrice) { planPrice = monthlyEquiv; planNickname = plan.nickname || ''; planInterval = interval }
           }
@@ -285,7 +300,7 @@ export async function buildStripeBilling(key) {
         stripeGhlLocationId: null, stripeStatus: primaryStatus, stripeSubscriptionId: primarySubId,
         stripeStartDate: startDate, planNickname, planInterval,
         planPrice: Math.round(planPrice * 100) / 100, monthlyUserSub: Math.round(monthlyUserSub * 100) / 100,
-        addOns: Math.round(addOns * 100) / 100, totalRev: Math.round(totalRev * 100) / 100,
+        addOns: Math.round(addOns * 100) / 100, ...addOnFlags(addOnItems), totalRev: Math.round(totalRev * 100) / 100,
         users: userCount, accountType: 'Agent', canceledAt,
         cancelAtPeriodEnd: catelAtPeriodEnd2, cancelAt: cancelAt2, stripeCanceling: stripeCanceling2,
         lcWalletCharges: 0, transactions: 0, gp: 0,

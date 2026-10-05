@@ -1,5 +1,5 @@
-import { HEALTH_BANDS, FLAG_NO_SALE_DAYS } from './healthConfig'
-import { computeHealth, recommendedAction } from './healthScoreModel'
+import { HEALTH_BANDS, FLAG_NO_SALE_DAYS, UPSELL_CALLS_7D, ADD_ON_PRICES } from './healthConfig.js'
+import { computeHealth, recommendedAction } from './healthScoreModel.js'
 
 // `account.users` is Stripe's quantity on the "additional user" line items — i.e. the seats the
 // client is billed for. The real number of users in the sub-account comes from GHL
@@ -57,49 +57,39 @@ export function isFlagged(account) {
   return d === null || d === undefined || d > FLAG_NO_SALE_DAYS
 }
 
-export function isUpsellReady(account) {
-  if (!account?.planPrice || account.planPrice <= 0) return false
-  const days = account.lastActivity
-  if (days === null || days === undefined) return false
-  if (Number(days) > 60) return false
-  // Must show engagement: users billed OR LC wallet activity
-  const engaged = (account.users ?? 0) >= 1 || (account.lcWalletCharges ?? 0) > 0
-  if (!engaged) return false
-  // Has upsell headroom: fewer than 4 users, or no add-ons yet
-  return (account.users ?? 0) < 4 || (account.addOns ?? 0) === 0
+// ── Upsell (John, 2026-10-05) ────────────────────────────────────────────────
+// Qualifies when the account made UPSELL_CALLS_7D+ calls in the past 7 days (GHL) and has
+// room for an add-on. Add-ons are LeadFlow AI ($50/mo) and AI Call Coach ($50/user/mo).
+//   0 add-ons → 'upsell'   ·   1 add-on → 'high' (already buying; sell the second)
+// Returns null when the account does not qualify.
+export function upsellTier(account) {
+  if (!account) return null
+  if ((account.calls7d ?? 0) < UPSELL_CALLS_7D) return null
+  const n = account.addOnCount ?? ((account.addOns ?? 0) > 0 ? 1 : 0)
+  if (n === 0) return 'upsell'
+  if (n === 1) return 'high'
+  return null
 }
 
+export function isUpsellReady(account) {
+  return upsellTier(account) !== null
+}
+
+// Which add-on to pitch and what it is worth per month
 export function suggestAddon(account) {
-  if (!account?.planPrice || account.planPrice <= 0) {
-    return { label: 'Connect billing to identify opportunities', estExtra: 0 }
+  const tier    = upsellTier(account)
+  const seats   = (account?.users ?? 0) + 1 // billed seats + the admin seat included in the base plan
+  const coach   = ADD_ON_PRICES.callCoachPerUser * seats
+  const calls   = account?.calls7d ?? 0
+  if (tier === 'high') {
+    if (account.hasLeadFlow && !account.hasCallCoach) return { label: `AI Call Coach (${seats} user${seats > 1 ? 's' : ''} × $50) — ${calls} calls/7d, already on LeadFlow AI`, estExtra: coach, addOn: 'AI Call Coach', priority: 'High' }
+    if (account.hasCallCoach && !account.hasLeadFlow) return { label: `LeadFlow AI ($50) — ${calls} calls/7d, already on AI Call Coach`, estExtra: ADD_ON_PRICES.leadFlow, addOn: 'LeadFlow AI', priority: 'High' }
+    return { label: `Second add-on — ${calls} calls/7d, one add-on already`, estExtra: Math.min(coach, ADD_ON_PRICES.leadFlow), addOn: 'LeadFlow AI or AI Call Coach', priority: 'High' }
   }
-
-  const lc        = account.lcWalletCharges ?? 0
-  const addOns    = account.addOns ?? 0
-  const seats     = account.users ?? 0
-  const rev       = account.planPrice ?? 0
-  const isMonthly = (account.planInterval ?? 'month') === 'month'
-  const isDM      = account.accountType === 'Direct' // direct (not under a DM) accounts get the annual-plan pitch
-
-  // High LC spend + no add-ons → AI automation is a clear fit
-  if (lc > 100 && addOns === 0) {
-    return { label: 'LeadFlow AI (active LC user — ready for automation)', estExtra: 50 }
+  if (tier === 'upsell') {
+    return { label: `LeadFlow AI ($50) + AI Call Coach (${seats} × $50) — ${calls} calls/7d, no add-ons`, estExtra: ADD_ON_PRICES.leadFlow + coach, addOn: 'LeadFlow AI, AI Call Coach', priority: 'Medium' }
   }
-  // No add-ons → LeadFlow AI first pitch
-  if (addOns === 0) {
-    return { label: 'LeadFlow AI Assistant', estExtra: 50 }
-  }
-  // Has add-ons, low seat count → expand seats
-  if (seats > 0 && seats < 3) {
-    const add = 3 - seats
-    return { label: `Add ${add} User Seat${add > 1 ? 's' : ''} ($64/ea)`, estExtra: add * 64 }
-  }
-  // Monthly DM account → annual plan upgrade
-  if (isDM && isMonthly && rev >= 200) {
-    const annualSavings = Math.round(rev * 0.16 * 12)
-    return { label: `Annual plan (save ~$${annualSavings}/yr)`, estExtra: Math.round(rev * 0.20) }
-  }
-  return { label: 'Seat expansion or plan upgrade', estExtra: Math.round(rev * 0.20) }
+  return { label: 'Does not meet the 300-calls / add-on rule', estExtra: 0, addOn: null, priority: null }
 }
 
 export function recommendAction(account) {

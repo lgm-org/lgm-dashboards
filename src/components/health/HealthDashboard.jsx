@@ -129,20 +129,29 @@ export default function HealthDashboard({ filters, setFilters }) {
   const [freshdesk, setFreshdesk] = useState(null)
   const [ticketsModalFilter, setTicketsModalFilter] = useState(null) // null closed · 'open' | 'urgent' | 'all'
 
-  // Upsell "Mark Contacted" state — persisted in localStorage
-  const [upsellContacted, setUpsellContacted] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('lgm-upsell-contacted') || '{}') } catch { return {} }
-  })
+  // Upsell "Unflag" state (John, 2026-10-05) — shared via Supabase through /api/upsell-flags.
+  // An unflagged account drops off the list (dashboard + Sales briefing) for 30 days, then qualifies again.
+  const [upsellDismissed, setUpsellDismissed] = useState({}) // locationId → { dismissed_at, until }
   useEffect(() => {
-    try { localStorage.setItem('lgm-upsell-contacted', JSON.stringify(upsellContacted)) } catch {}
-  }, [upsellContacted])
-  const isContacted     = (id) => !!upsellContacted[String(id)]
-  const toggleContacted = (id) => setUpsellContacted(prev => {
+    let cancelled = false
+    fetch('/api/upsell-flags').then(r => r.json()).then(d => { if (!cancelled && d?.byLocationId) setUpsellDismissed(d.byLocationId) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+  const isContacted     = (id) => !!upsellDismissed[String(id)]
+  const toggleContacted = async (id) => {
     const k = String(id)
-    if (prev[k]) { const next = { ...prev }; delete next[k]; return next }
-    return { ...prev, [k]: new Date().toISOString() }
-  })
-  const getContactedAt  = (id) => upsellContacted[String(id)] || null
+    const was = !!upsellDismissed[k]
+    setUpsellDismissed(prev => {
+      const next = { ...prev }
+      if (was) delete next[k]
+      else next[k] = { dismissed_at: new Date().toISOString(), until: new Date(Date.now() + 30 * 86_400_000).toISOString() }
+      return next
+    })
+    try {
+      await fetch('/api/upsell-flags', { method: was ? 'DELETE' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locationId: k }) })
+    } catch { /* optimistic; the next load re-syncs */ }
+  }
+  const getContactedAt  = (id) => { const d = upsellDismissed[String(id)]; return d ? new Date(d.dismissed_at).getTime() : null }
 
   useEffect(() => {
     let cancelled = false
@@ -394,7 +403,7 @@ export default function HealthDashboard({ filters, setFilters }) {
       a._health?.band === 'at_risk' || a.stripeStatus === 'past_due'
     )
     const healthyList  = billedAccounts.filter(a => a._health?.band === 'healthy')
-    const upsellList   = billedAccounts.filter(isUpsellReady)
+    const upsellList   = billedAccounts.filter(a => isUpsellReady(a) && !upsellDismissed[String(a.id)])
     const newList      = billedAccounts.filter(a => (a.stripeStartDate || '') >= cutoff)
     const withUsers    = billedAccounts.filter(a => billableUsers(a) > 0)
 
@@ -412,7 +421,7 @@ export default function HealthDashboard({ filters, setFilters }) {
         : 0,
       newMRR:       newList.reduce((s, a) => s + a.totalRev, 0),
     }
-  }, [billedAccounts])
+  }, [billedAccounts, upsellDismissed])
 
   // ── DM vs Agent breakdown ────────────────────────────────────────────────
   const dmAgentBreakdown = useMemo(() => {
@@ -447,8 +456,8 @@ export default function HealthDashboard({ filters, setFilters }) {
   )
 
   const top3Upsell = useMemo(() =>
-    upsellAccounts.slice(0, 3).map(a => ({ ...a, _upsell: suggestAddon(a) })),
-    [upsellAccounts]
+    upsellAccounts.filter(a => !upsellDismissed[String(a.id)]).slice(0, 3).map(a => ({ ...a, _upsell: suggestAddon(a) })),
+    [upsellAccounts, upsellDismissed]
   )
 
   // ── Cohort churn — John's formula: of clients who STARTED in window, how many cancelled

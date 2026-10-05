@@ -6,9 +6,11 @@
 //        inbound (Hope/Jessica/Kylie/Rachel call briefing) · john (CEO roll-up)
 
 import { classifyScore, recommendedAction } from '../src/lib/healthScoreModel.js'
+import { upsellTier, suggestAddon } from '../src/lib/healthEngine.js'
+import { UPSELL_CALLS_7D, UPSELL_DISMISS_DAYS } from '../src/lib/healthConfig.js'
 import {
   loadAccounts, loadStripe, matchBilling, ACTIVE_STRIPE, loadStats, loadHealthHistory, loadDmMap, loadMeetings,
-  loadLgmCalls, loadFreshdeskCreated, loadLgmCustomers, loadLgmWonSales, loadPreviousSnapshot, loadRecentItems,
+  loadLgmCalls, loadFreshdeskCreated, loadLgmCustomers, loadLgmWonSales, loadUpsellDismissals, loadPreviousSnapshot, loadRecentItems,
   localDay, addDays, dayRange, daysBetween, daysSinceIso, inDays, avg, round2, accountLink, normalizeName, DASHBOARD_URL, reportingPeriod,
 } from './_briefingSources.js'
 
@@ -50,6 +52,7 @@ export async function buildContext(runDay = localDay()) {
     freshdesk: loadFreshdeskCreated(dayRange(period.start).start.toISOString()),
     customers: loadLgmCustomers(),
     wonSales:  loadLgmWonSales(),
+    upsellDismissed: loadUpsellDismissals(),
   }
   const keys = Object.keys(jobs)
   const settled = await Promise.allSettled(Object.values(jobs))
@@ -66,6 +69,7 @@ export async function buildContext(runDay = localDay()) {
   const dmRows   = src.dmMap || []
   const customers = src.customers || { available: false, bySubAccount: {}, byEmail: {}, byContactId: {} }
   const wonSales  = src.wonSales  || { available: false, sales: [] }
+  const dismissed = src.upsellDismissed || {}
 
   // Meeting rows indexed by customer name and by GHL location id (phone calls carry it in Meeting ID)
   const meetingsByNorm = {}, meetingsByLoc = {}
@@ -98,6 +102,9 @@ export async function buildContext(runDay = localDay()) {
       id: a.ghlId, name: a.ghlName, link: accountLink(a.ghlId), email: a.ghlEmail || null,
       dateAdded: a.ghlDateAdded, daysSinceAdded: a.ghlDateAdded ? daysBetween(a.ghlDateAdded, runDay) : null,
       mrr: billing ? round2(billing.totalRev) : null, stripeStatus: billing?.stripeStatus || null,
+      users: billing?.users ?? 0, addOns: billing?.addOns ?? 0, addOnCount: billing?.addOnCount ?? ((billing?.addOns ?? 0) > 0 ? 1 : 0),
+      hasLeadFlow: billing?.hasLeadFlow ?? false, hasCallCoach: billing?.hasCallCoach ?? false, addOnNames: (billing?.addOnItems || []).map(x => x.nickname).filter(Boolean),
+      planPrice: billing?.planPrice ?? 0, upsellDismissedUntil: dismissed[a.ghlId]?.until || null,
       stripeCustomerId: billing?.stripeCustomerId || null, soldDay, accountType: billing?.accountType || null,
       score, band, bandLabel: bandLabel[band], warnings,
       recommendedAction: recommendedAction({ band, warnings }),
@@ -118,6 +125,10 @@ export async function buildContext(runDay = localDay()) {
     }
   })
 
+  for (const a of accounts) {
+    a.upsellTier = ACTIVE_STRIPE.has(a.stripeStatus || '') ? upsellTier(a) : null
+    if (a.upsellTier) { const sg = suggestAddon(a); a.upsellSuggestion = sg.label; a.upsellExtra = sg.estExtra; a.upsellPriority = sg.priority }
+  }
   const byId = Object.fromEntries(accounts.map(a => [a.id, a]))
   const byNorm = {}
   for (const a of accounts) { const n = normalizeName(a.name); if (n) (byNorm[n] ||= []).push(a) }
@@ -230,6 +241,39 @@ function demoIsClosed(ctx, m) {
   return rec && rec.stripeStartDate >= cutoff ? { id: null, name: rec.stripeCustomerName } : null
 }
 
+// Upsell opportunities for the Sales briefing (same rule as the dashboard; unflagged accounts hidden 30 days)
+function upsellOpportunities(ctx) {
+  const all = ctx.accounts.filter(a => a.upsellTier)
+  const visible = all.filter(a => !a.upsellDismissedUntil)
+  const item = (a) => ({ ref: a.id, name: a.name, link: a.link, priority: a.upsellPriority, calls7d: a.calls7d, users: a.users,
+    currentAddOns: [a.hasLeadFlow ? 'LeadFlow AI' : null, a.hasCallCoach ? 'AI Call Coach' : null].filter(Boolean).concat(!a.hasLeadFlow && !a.hasCallCoach ? a.addOnNames : []),
+    mrr: a.mrr, suggestion: a.upsellSuggestion, estExtraMrr: a.upsellExtra, score: a.score, band: a.bandLabel, dm: a.dm?.name || null, soldBy: a.soldBy })
+  const byCalls = (x, y) => (y.calls7d ?? 0) - (x.calls7d ?? 0)
+  return {
+    rule: `${UPSELL_CALLS_7D}+ calls in the past 7 days; no add-ons = upsell, exactly one add-on = high priority. Unflagged accounts are hidden for ${UPSELL_DISMISS_DAYS} days.`,
+    highPriority: visible.filter(a => a.upsellTier === 'high').sort(byCalls).map(item),
+    standard: visible.filter(a => a.upsellTier === 'upsell').sort(byCalls).map(item),
+    hiddenUnflagged: all.length - visible.length,
+    potentialMrr: round2(visible.reduce((s, a) => s + (a.upsellExtra || 0), 0)),
+  }
+}
+
+// New clients grouped by account age (John, 2026-10-05) — for Client Coordinators and Client Relations
+const COHORTS = [[5, 9], [10, 15], [16, 30], [31, 60]]
+function newClientCohorts(ctx) {
+  return COHORTS.map(([from, to]) => {
+    const list = ctx.accounts.filter(a => a.daysSinceAdded !== null && a.daysSinceAdded >= from && a.daysSinceAdded <= to)
+      .sort((x, y) => (x.score ?? 999) - (y.score ?? 999))
+    return {
+      label: `${from}–${to} days old`, from, to, count: list.length, avgHealth: avg(list.map(a => a.score)),
+      red: list.filter(a => a.band === 'at_risk').length, noData: list.filter(a => a.score === null).length,
+      accounts: list.map(a => ({ ref: a.id, name: a.name, link: a.link, ageDays: a.daysSinceAdded, score: a.score, band: a.bandLabel, trend7: a.trend7, calls7d: a.calls7d, mrr: a.mrr, soldBy: a.soldBy,
+        onboarding: a.onboarding ? [a.onboarding.buildOut, a.onboarding.trainingDate ? `training ${a.onboarding.trainingDate}` : 'no training date', a.onboarding.a2pApprovedAt ? 'A2P ok' : 'A2P pending'].filter(Boolean).join(' · ') : (a.onboardingMeetings ? `onboarding meeting ${a.lastOnboardingMeeting?.date}` : 'no onboarding record'),
+        lastMeeting: a.lastMeeting ? `${a.lastMeeting.date} ${a.lastMeeting.category}` : null })),
+    }
+  })
+}
+
 // ── Role: Rachel ─────────────────────────────────────────────────────────────
 
 export async function collectRachel(ctx) {
@@ -276,7 +320,7 @@ export async function collectRachel(ctx) {
       past30Days: { newClients: new30.length, avgHealth: scoreOf(new30) },
       totalRedAccounts: overallRaw.length, atRiskSkippedAsRepeats: skipped,
     },
-    newAccounts, mostSuccessfulNew: mostSuccessful, mostAtRiskNew: atRiskNew, topAtRiskOverall: overall,
+    newAccounts, newClientCohorts: newClientCohorts(ctx), mostSuccessfulNew: mostSuccessful, mostAtRiskNew: atRiskNew, topAtRiskOverall: overall,
     changesSinceYesterday: ctx.accounts.filter(a => a.yesterdayScore !== null && a.score !== null && Math.abs(a.score - a.yesterdayScore) >= 10)
       .sort((x, y) => (x.score - x.yesterdayScore) - (y.score - y.yesterdayScore)).slice(0, 10)
       .map(a => ({ ref: a.id, name: a.name, link: a.link, from: a.yesterdayScore, to: a.score })),
@@ -343,6 +387,7 @@ export function collectKevin(ctx) {
     openDemoFollowUps: openFollowUps.slice(0, 15),
     recentlyClosed: closedRecently.slice(0, 10),
     recentSalesHealth: recentSales.slice(0, 20),
+    upsellOpportunities: upsellOpportunities(ctx),
     sourceStatus: ctx.sourceStatus,
   }
 }
@@ -439,6 +484,7 @@ export function collectInbound(ctx) {
     ].filter(Boolean),
     missedCallsNeedingFollowUp: needFollowUp.map(c => ({ ref: c.ref, caller: c.contactName, time: c.timeLocal, outcome: c.outcome })),
     callBreakdown: breakdown,
+    newClientCohorts: newClientCohorts(ctx),
     unresolvedCalls: breakdown.filter(b => b.followUpNeeded),
     repeatCallers,
     concerningSentiment: breakdown.filter(b => b.frustrated || /frustrat|confus|angry|upset/i.test(b.sentiment) || /high/i.test(b.riskLevel)),
@@ -513,6 +559,7 @@ export async function collectJohn(ctx, packs) {
       demosPast30Days: demos30.length, closedPast30Days: closed30, closeRatePct: demos30.length ? Math.round((closed30 / demos30.length) * 100) : null,
       avgMrrPerSalePast30Days: kevin.salesTable.past30Days.avgMrrPerSale,
       byRepPast30Days: kevin.salesTable.past30Days.byRep, byRepMtd: kevin.salesTable.mtd.byRep,
+      upsell: { highPriority: kevin.upsellOpportunities.highPriority.length, standard: kevin.upsellOpportunities.standard.length, potentialMrr: kevin.upsellOpportunities.potentialMrr, top: kevin.upsellOpportunities.highPriority.slice(0, 5) },
       importantLostDemos: kevin.openDemoFollowUps.filter(d => d.suggestedPriority === 'High').slice(0, 5),
       biggestOpportunities: kevin.openDemoFollowUps.filter(d => /interest|engaged|happy/i.test(d.sentiment)).slice(0, 5),
     },

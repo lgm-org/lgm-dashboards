@@ -250,6 +250,7 @@ export function useMergedHealthData() {
         const usedLc = ghlDays === null && lcDays !== null
         return {
           _signals:            signals,
+          calls7d:             s.calls7d ?? null,
           _healthV2:           health,
           lastActivity:        ghlDays !== null ? ghlDays : lcDays,
           lastLcActivityMonth: usedLc ? lcMonths[g.ghlId] : null,
@@ -277,6 +278,10 @@ export function useMergedHealthData() {
       planPrice:       billing?.planPrice       ?? 0,
       monthlyUserSub:  billing?.monthlyUserSub  ?? 0,
       addOns:          billing?.addOns          ?? 0,
+      addOnCount:      billing?.addOnCount      ?? ((billing?.addOns ?? 0) > 0 ? 1 : 0),
+      hasLeadFlow:     billing?.hasLeadFlow     ?? false,
+      hasCallCoach:    billing?.hasCallCoach    ?? false,
+      addOnItems:      billing?.addOnItems      || [],
       lcWalletCharges: lcBulk[g.ghlId] ?? billing?.lcWalletCharges ?? 0,
       annualSubs:      billing?.planInterval === 'year'
         ? Math.round((billing?.planPrice ?? 0) * 12 * 100) / 100

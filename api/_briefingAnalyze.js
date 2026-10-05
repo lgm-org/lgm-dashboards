@@ -60,20 +60,23 @@ salesTable is company-wide with a byRep breakdown; kevinOwnSales is Kevin's own 
 Role sections to produce, in this order:
 1. "Demo follow-ups" — one item per openDemoFollowUps entry (max 10): objection summary in the buyer's terms, recommended next action, and Priority High/Medium/Low (start from suggestedPriority, adjust with judgement). ref = the demo ref.
 2. "Recent sales health" — items for recentSalesHealth accounts with a concern (poor fit or early churn risk) and the 1-2 strongest ones. ref = account ref.
+3. "Upsell opportunities" — from upsellOpportunities: high-priority accounts first (300+ calls in 7 days with exactly one add-on: pitch the missing one), then the no-add-on accounts; one line each with calls, current add-ons and the pitch. Say "none today" if both lists are empty.
 Sales quality matters as much as sales count — call out any recent sale that looks like a poor fit.`,
   rachel: `Recipient: Rachel, client relations and onboarding. This is her daily retention hit list.
 Role sections to produce, in this order:
 1. "Most successful new accounts" — up to 5 from mostSuccessfulNew, one line each on what is going right.
 2. "Most at-risk new accounts" — up to 5 from mostAtRiskNew: why, and the onboarding step to take.
 3. "Retention hit list" — the topAtRiskOverall accounts: why at risk, recommended action, suggested owner (use suggestedOwner unless the facts argue otherwise).
+4. "New clients by age" — from newClientCohorts (5–9, 10–15, 16–30, 31–60 days old): one line per cohort with count and average health, then the accounts in each that need attention and the onboarding step to take.
 Use changesSinceYesterday for trend call-outs.`,
-  inbound: `Recipients: Hope, Jessica, Kylie and Rachel — the team handling inbound customer calls. Goal: understand inbound demand and whether calls were handled well, and stop customer calls drifting back to Sales.
+  inbound: `Recipients: the Client Coordinators (Hope, Jessica, Kylie and Rachel) — the team handling inbound customer calls and new-client coordination. Goal: understand inbound demand and whether calls were handled well, stop customer calls drifting back to Sales, and keep new clients on track.
 Role sections to produce, in this order:
 1. "Calls not resolved" — from unresolvedCalls: customer, what is pending, owner.
 2. "Customers who called repeatedly" — from repeatCallers with the likely reason.
 3. "Calls that should have gone elsewhere" — calls whose reason/category does not match who handled them (e.g. Sales questions handled by support, support issues handled by Sales). Say "None spotted" if none.
 4. "Concerning sentiment" — from concerningSentiment.
 5. "Sales or upsell opportunities" — anything in the call summaries suggesting an add-on, upgrade, referral or expansion.
+6. "New clients by age" — from newClientCohorts (5–9, 10–15, 16–30, 31–60 days old): for each cohort one line with the count and average health, then name the accounts in that cohort that need a coordinator's attention (Red, no calls, onboarding not done) and what to do.
 If stats.available is false, say the GHL call stats could not be loaded and why.`,
   john: `Recipient: John, CEO. This is the roll-up, not a repeat of every employee email.
 went_well = "What went well yesterday" (3-5 bullets). needs_attention = "What needs attention today" (3-5 bullets).

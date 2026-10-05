@@ -402,6 +402,12 @@ export async function loadLgmWonSales() {
   return { available: true, sales, pipeline: pipeline ? { id: pipeline.id, name: pipeline.name } : null, stage: stage ? { id: stage.id, name: stage.name } : null }
 }
 
+// ── Upsell unflags (dashboard "Unflag" button; 30-day hide) ─────────────────
+export async function loadUpsellDismissals() {
+  const { activeDismissals } = await import('./upsell-flags.js')
+  return activeDismissals()
+}
+
 // ── Freshdesk: tickets created in a window (support volume) ──────────────────
 
 export async function loadFreshdeskCreated(sinceIso) {
