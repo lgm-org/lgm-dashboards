@@ -19,7 +19,7 @@ export function normalizeName(n) {
 
 // Add-on products (John, 2026-10-05): LeadFlow AI ($50/mo) and AI Call Coach ($50/user/mo).
 // Detected from the Stripe price nickname; addOnItems is returned so the names can be verified.
-export const ADD_ON_PATTERNS = { leadFlow: /lead\s*flow/i, callCoach: /call\s*coach|ai\s*assistant|coach/i }
+export const ADD_ON_PATTERNS = { leadFlow: /lead\s*flow/i, callCoach: /call\s*coach/i } // Stripe nickname today: "LeadFlow AI Assistant @ 50"; AI Call Coach not seen in Stripe yet
 export function addOnFlags(items) {
   const hasLeadFlow  = items.some(i => ADD_ON_PATTERNS.leadFlow.test(i.nickname))
   const hasCallCoach = items.some(i => ADD_ON_PATTERNS.callCoach.test(i.nickname))

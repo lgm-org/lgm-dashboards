@@ -260,8 +260,14 @@ export async function loadLgmCalls(fromDay, toDay = fromDay) {
     startAfter = rows[rows.length - 1]?.lastMessageDate
   }
   const calls = []
-  for (const c of convs.slice(0, 600)) {
-    const m = await ghlFetch(`/conversations/${c.id}/messages?type=TYPE_CALL&limit=20`, token)
+  const scan = convs.slice(0, 600)
+  const CONCURRENCY = 6
+  const results = []
+  for (let i = 0; i < scan.length; i += CONCURRENCY) {
+    const batch = await Promise.all(scan.slice(i, i + CONCURRENCY).map(c => ghlFetch(`/conversations/${c.id}/messages?type=TYPE_CALL&limit=20`, token).then(m => ({ c, m })).catch(() => ({ c, m: { json: null }}))))
+    results.push(...batch)
+  }
+  for (const { c, m } of results) {
     const list = m.json?.messages?.messages || m.json?.messages || []
     for (const msg of list) {
       const at = new Date(msg.dateAdded)
