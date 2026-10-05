@@ -7,15 +7,20 @@ import { render, renderText, subjectFor } from './_briefingRender.js'
 import { saveSnapshot, saveItems, logSend, localDay } from './_briefingSources.js'
 
 // Recipients: BRIEFING_RECIPIENTS = {"joe":["..."],"kevin":["..."],"rachel":["..."],"inbound":["...","..."],"john":["..."]}
+// BRIEFING_COPY_TO = comma list that gets a separate copy of EVERY briefing (John, Syed).
 // While BRIEFING_TEST_TO is set, EVERY briefing goes only to that address (safe rollout).
+// Every address receives its own email (one recipient in To) — nobody sees who else gets it.
+const splitList = (v) => String(v || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
 export function recipientsFor(role, override = null) {
-  if (override) return String(override).split(',').map(s => s.trim()).filter(Boolean)
-  if (process.env.BRIEFING_TEST_TO) return process.env.BRIEFING_TEST_TO.split(',').map(s => s.trim()).filter(Boolean)
+  if (override) return splitList(override)
+  if (process.env.BRIEFING_TEST_TO) return splitList(process.env.BRIEFING_TEST_TO)
+  let own = []
   try {
     const cfg = JSON.parse(process.env.BRIEFING_RECIPIENTS || '{}')
     const v = cfg[role]
-    return Array.isArray(v) ? v : typeof v === 'string' ? [v] : []
-  } catch { return [] }
+    own = Array.isArray(v) ? v : typeof v === 'string' ? [v] : []
+  } catch { own = [] }
+  return Array.from(new Set([...own.map(x => String(x).trim().toLowerCase()), ...splitList(process.env.BRIEFING_COPY_TO)]))
 }
 
 // Two delivery paths, first one configured wins:
@@ -79,8 +84,15 @@ export async function runBriefings(opts = {}) {
     if (opts.send) {
       if (!out.recipients.length) { out.status = 'not_sent'; out.sendError = 'no recipients configured (BRIEFING_RECIPIENTS / BRIEFING_TEST_TO)' }
       else {
-        try { out.messageId = await sendEmail({ to: out.recipients, subject, html, text }); out.status = 'sent' }
-        catch (err) { out.status = 'send_failed'; out.sendError = err.message; console.error('[briefing] send failed', role, err.message) }
+        // One email per recipient so nobody sees the other addresses
+        const failures = []
+        out.messageIds = {}
+        for (const addr of out.recipients) {
+          try { out.messageIds[addr] = await sendEmail({ to: addr, subject, html, text }) }
+          catch (err) { failures.push(`${addr}: ${err.message}`); console.error('[briefing] send failed', role, addr, err.message) }
+        }
+        out.status = failures.length === 0 ? 'sent' : failures.length === out.recipients.length ? 'send_failed' : 'partial'
+        if (failures.length) out.sendError = failures.join(' | ')
       }
     }
 

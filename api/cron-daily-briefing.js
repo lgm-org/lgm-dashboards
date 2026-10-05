@@ -1,4 +1,4 @@
-// Vercel cron — sends the daily AI briefings every Monday to Friday at 11:15 UTC (06:15 Central).
+// Vercel cron — sends the daily AI briefings every Monday to Friday at 06:00 Central (locked across DST).
 // Tuesday-Friday editions cover yesterday; the Monday edition covers the whole previous week
 // (see reportingPeriod() in _briefingSources.js).
 // vercel.json is shared by every Vercel project built from this repo, so this fires on all of
@@ -10,6 +10,11 @@
 
 import { runBriefings } from './_briefingRun.js'
 
+// Vercel crons are UTC and cannot follow daylight saving. vercel.json fires this at 11:00 and 12:00 UTC;
+// only the firing where it is BRIEFING_SEND_HOUR_CT o'clock in Chicago (default 6) does the work.
+const SEND_HOUR_CT = Number(process.env.BRIEFING_SEND_HOUR_CT || 6)
+const chicagoHour = () => Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', hourCycle: 'h23' }).format(new Date()))
+
 export default async function handler(req, res) {
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' })
@@ -18,6 +23,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ skipped: `not the health project (VITE_APP_MODE=${process.env.VITE_APP_MODE || 'unset'})` })
   }
   if (process.env.BRIEFINGS_ENABLED === '0') return res.status(200).json({ skipped: 'BRIEFINGS_ENABLED=0' })
+  if (req.query.force !== '1' && chicagoHour() !== SEND_HOUR_CT) {
+    return res.status(200).json({ skipped: `not ${SEND_HOUR_CT}:00 in Chicago (it is ${chicagoHour()}:xx) — the other UTC slot will send` })
+  }
 
   try {
     const out = await runBriefings({ send: true })
