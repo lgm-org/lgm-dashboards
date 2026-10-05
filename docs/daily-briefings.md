@@ -26,8 +26,8 @@ cron-daily-briefing (Mon-Fri 11:15 UTC = 06:15 Central; Monday = week recap)
                                         briefing_items (no-repeat rule: 3 days unless changed ≥5 pts or score < 30)
 ```
 
-Roles: `joe` (DM growth) · `kevin` (sales + follow-up) · `rachel` (onboarding + retention hit list) ·
-`inbound` (Hope/Jessica/Kylie/Rachel) · `john` (CEO roll-up, built from the other four packs).
+Roles: `joe` (DM growth) · `kevin` (sales + follow-up + upsell opportunities) · `rachel` (onboarding + retention hit list + new-client age cohorts) ·
+`inbound` (**Client Coordinators Briefing** — Hope/Jessica/Kylie/Rachel: inbound calls + new-client age cohorts) · `john` (CEO roll-up).
 
 ## Preview / manual runs
 
@@ -67,6 +67,19 @@ Sales and New MRR = opportunities with status **Won** in LGM's GHL Sales Pipelin
 Opportunities map to client accounts via the LGM customer record's "Sub-account ID", then contact email, then name.
 If the GHL pull fails the run falls back to Stripe subscription starts and says so in the email. Active MRR per
 account and expansion/churn still come from Stripe.
+
+## Upsell rule (John, 2026-10-05)
+
+Dashboard and Sales briefing share `upsellTier()` in `src/lib/healthEngine.js`: 300+ calls in the past 7 days
+(`ghl_account_stats.calls_7d`) AND no add-ons → **Upsell**; AND exactly one add-on → **High priority**.
+Add-ons are detected from Stripe price nicknames (`addOnFlags()` in `api/stripe-billing.js`): LeadFlow AI ($50/mo),
+AI Call Coach ($50/user/mo). **Unflag** in the dashboard (`/api/upsell-flags`, table `upsell_dismissals`) hides the
+account from both for 30 days (`UPSELL_DISMISS_DAYS`), after which it qualifies again automatically.
+
+## New-client cohorts (John, 2026-10-05)
+
+Client Coordinators and Client Relations briefings group new clients by account age: 5–9, 10–15, 16–30, 31–60 days,
+with count, average health and the account list (`newClientCohorts()` in `_briefingCollect.js`).
 
 ## Data gaps (sections show "no data" until filled)
 
