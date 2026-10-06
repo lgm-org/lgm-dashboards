@@ -98,6 +98,11 @@ export default async function handler(req, res) {
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
+  // vercel.json crons are repo-wide, so every dashboard project schedules this.
+  // Only the calls project (CALL_SYNC_ENABLED=true) may write — one writer.
+  if (process.env.CALL_SYNC_ENABLED !== 'true') {
+    return res.status(200).json({ ok: true, skipped: 'CALL_SYNC_ENABLED is not true on this project' })
+  }
   const dry = req.query.dry === '1'
 
   try {
