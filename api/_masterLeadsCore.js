@@ -319,12 +319,15 @@ export function buildLeads(raw, fromMs, toMs) {
       pipelineId:        o.pipelineId,
       pipelineStageId:   o.pipelineStageId,
       pipelineStageName: stageNames[o.pipelineStageId] || null,
+      source:            o.source || null,
       status:            o.status,
       dateAdded:         o.dateAdded,
       lastStageChangeAt: o.lastStageChangeAt,
       customFields:      resolveAllCustomFields(o, fieldsById),
     })
   }
+
+  const userNames = new Set(Object.values(usersById || {}).filter(Boolean))
 
   const leads = contacts
     .filter(c => {
@@ -343,7 +346,10 @@ export function buildLeads(raw, fromMs, toMs) {
         dateAdded:          c.dateAdded,
         lastStatusChangeAt: c.lastStatusChangeAt || null,
         salesStage:         latestOpp?.pipelineStageName || null,
-        source:             c.source || null,
+        // Lead source lives on the opportunity (John, 2026-10-07). The contact-level
+        // source is only a fallback, and never when a workflow has stuffed the
+        // assigned user's name into it.
+        source:             latestOpp?.source || (c.source && !userNames.has(c.source) ? c.source : null),
         assignedTo:         c.assignedTo || null,
         assignedToName:     usersById[c.assignedTo] || null,
         leadPrice:          readCustomFieldValue(c, fieldMap.leadPrice),
