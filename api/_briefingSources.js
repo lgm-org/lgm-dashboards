@@ -229,10 +229,12 @@ export async function loadMeetings() {
 
 // ── LGM inbound calls (GHL call messages on the LGM sub-account) ─────────────
 
+// Prefer the live OAuth token (refreshed by the cron, carries every scope). The static
+// GHL_LOCATION_TOKEN env var is only a last resort — it is a fixed token that expires and was
+// the cause of "customFields HTTP 401" on note mirroring.
 async function lgmToken() {
-  if (process.env.GHL_LOCATION_TOKEN) return process.env.GHL_LOCATION_TOKEN
   const { token } = await getLocationAccessToken(LGM_LOCATION_ID)
-  return token
+  return token || process.env.GHL_LOCATION_TOKEN || null
 }
 
 const MISSED_STATUSES = new Set(['no-answer', 'no_answer', 'busy', 'failed', 'canceled', 'cancelled', 'missed'])

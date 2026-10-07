@@ -19,7 +19,7 @@ export function normalizeName(n) {
 
 // Add-on products (John, 2026-10-05): LeadFlow AI ($50/mo) and AI Call Coach ($50/user/mo).
 // Detected from the Stripe price nickname; addOnItems is returned so the names can be verified.
-export const ADD_ON_PATTERNS = { leadFlow: /lead\s*flow/i, callCoach: /call\s*coach/i } // Stripe nickname today: "LeadFlow AI Assistant @ 50"; AI Call Coach not seen in Stripe yet
+export const ADD_ON_PATTERNS = { leadFlow: /lead\s*flow/i, callCoach: /call\s*coach/i } // Stripe nicknames: "LeadFlow AI Assistant @ 50", "AI Call Coach …" ($50/user, qty = users)
 export function addOnFlags(items) {
   const hasLeadFlow  = items.some(i => ADD_ON_PATTERNS.leadFlow.test(i.nickname))
   const hasCallCoach = items.some(i => ADD_ON_PATTERNS.callCoach.test(i.nickname))
@@ -166,7 +166,8 @@ export async function buildStripeBilling(key) {
             nick.includes('leadflow') ||
             nick.includes('ai assistant') ||
             nick.includes('add-on') ||
-            nick.includes('addon')
+            nick.includes('addon') ||
+            ADD_ON_PATTERNS.callCoach.test(nick)   // "AI Call Coach" ($50/user) — John, 2026-10-08
           ) {
             addOns += monthlyEquiv * qty
             addOnItems.push({ nickname: plan.nickname || '', qty, monthly: Math.round(monthlyEquiv * qty * 100) / 100 })
@@ -278,7 +279,7 @@ export async function buildStripeBilling(key) {
           const monthlyEquiv = interval === 'month' ? amtDollars : amtDollars / 12
           if (nick.includes('additional user') || nick.includes('user seat') || nick.includes('@ 64')) {
             monthlyUserSub += monthlyEquiv * qty; userCount += qty
-          } else if (nick.includes('leadflow') || nick.includes('ai assistant') || nick.includes('add-on') || nick.includes('addon')) {
+          } else if (nick.includes('leadflow') || nick.includes('ai assistant') || nick.includes('add-on') || nick.includes('addon') || ADD_ON_PATTERNS.callCoach.test(nick)) {
             addOns += monthlyEquiv * qty
             addOnItems.push({ nickname: plan.nickname || '', qty, monthly: Math.round(monthlyEquiv * qty * 100) / 100 })
           } else {

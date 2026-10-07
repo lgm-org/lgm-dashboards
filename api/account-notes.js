@@ -42,7 +42,24 @@ export default async function handler(req, res) {
   if (!user) return res.status(401).json({ error: 'Not signed in' })
 
   if (req.method === 'GET') {
-    const { locationId, resolve } = req.query
+    const { locationId, resolve, all } = req.query
+
+    // ?all=1 → per-account summary for the All Accounts table: last note + the 5 most recent
+    if (all === '1') {
+      const { data, error } = await sb().from('account_notes')
+        .select('location_id, author_name, author_email, body, created_at')
+        .order('created_at', { ascending: false }).limit(3000)
+      if (error) return res.status(500).json({ error: error.message })
+      const byLocation = {}
+      for (const n of data || []) {
+        const e = (byLocation[n.location_id] ||= { count: 0, last: null, recent: [] })
+        e.count++
+        if (!e.last) e.last = n
+        if (e.recent.length < 5) e.recent.push(n)
+      }
+      return res.json({ byLocation, syncedAt: new Date().toISOString() })
+    }
+
     if (!locationId) return res.status(400).json({ error: 'locationId required' })
     if (resolve === '1') {
       const { contact, reason } = await lgmContactFor(locationId)

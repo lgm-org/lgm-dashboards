@@ -6,7 +6,9 @@ const MARGIN = 8
 
 // Rendered through a portal with fixed positioning so cards/tables with
 // overflow-hidden or overflow-x-auto can never clip the tooltip text.
-export default function InfoTip({ text, position = 'top-end' }) {
+// `trigger` replaces the default "?" button with any inline content (e.g. a date) that shows
+// the tooltip on hover; `width` overrides the default tooltip width.
+export default function InfoTip({ text, position = 'top-end', trigger = null, width = WIDTH }) {
   const [show, setShow] = useState(false)
   const [pos, setPos]   = useState(null)
   const btnRef = useRef(null)
@@ -17,8 +19,8 @@ export default function InfoTip({ text, position = 'top-end' }) {
     const r    = btnRef.current?.getBoundingClientRect()
     const tipH = tipRef.current?.offsetHeight ?? 0
     if (!r) return
-    let left = position.endsWith('start') ? r.left : r.right - WIDTH
-    left = Math.max(MARGIN, Math.min(left, window.innerWidth - WIDTH - MARGIN))
+    let left = position.endsWith('start') ? r.left : r.right - width
+    left = Math.max(MARGIN, Math.min(left, window.innerWidth - width - MARGIN))
     const spaceAbove = r.top - MARGIN
     const spaceBelow = window.innerHeight - r.bottom - MARGIN
     const wantTop    = position.startsWith('top')
@@ -46,22 +48,29 @@ export default function InfoTip({ text, position = 'top-end' }) {
       onFocus={() => setShow(true)}
       onBlur={() => setShow(false)}
     >
-      <button
-        ref={btnRef}
-        className="w-4 h-4 rounded-full border border-brand-border bg-brand-bg text-brand-muted text-[9px] font-bold flex items-center justify-center cursor-help focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-green"
-        tabIndex={0}
-        aria-label="More info"
-        type="button"
-      >
-        ?
-      </button>
+      {trigger ? (
+        <button ref={btnRef} type="button" tabIndex={0} aria-label="More info"
+          className="inline-flex items-center cursor-help focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-green rounded">
+          {trigger}
+        </button>
+      ) : (
+        <button
+          ref={btnRef}
+          className="w-4 h-4 rounded-full border border-brand-border bg-brand-bg text-brand-muted text-[9px] font-bold flex items-center justify-center cursor-help focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-green"
+          tabIndex={0}
+          aria-label="More info"
+          type="button"
+        >
+          ?
+        </button>
+      )}
       {show && createPortal(
         <div
           ref={tipRef}
           role="tooltip"
           className="fixed z-[200] text-[11px] leading-relaxed text-brand-heading bg-white border border-brand-border rounded-xl px-3 py-2.5 pointer-events-none whitespace-pre-line"
           style={{
-            width: WIDTH,
+            width,
             left: pos?.left ?? 0,
             top:  pos?.top  ?? 0,
             visibility: pos ? 'visible' : 'hidden',

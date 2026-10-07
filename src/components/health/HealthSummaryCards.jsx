@@ -148,7 +148,7 @@ export default function HealthSummaryCards({
         icon="⚠️"
         accentColor={RED}
         delay={60}
-        infoText={"Rule: health score below 55 (the At Risk band) — accounts Customer Success should investigate.\nScore = Platform Activity 45 + Sales Activity 40 + Account Health 15.\nAccounts with no GHL data are never counted here.\nClick to jump to the Needs Attention table."}
+        infoText={"Rule: health score below 55 (the At Risk band) — accounts Customer Success should investigate.\nScore = Platform Activity 45 + Sales Activity 40 + Account Health 15.\nAccounts with no GHL data are never counted here.\nClick to open the All Accounts table filtered to At Risk."}
         clickable={!!onNeedsCheckinClick}
         onClick={onNeedsCheckinClick}
       />

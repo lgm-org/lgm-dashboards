@@ -97,6 +97,7 @@ const COLS = [
   { key: '_sig:won30d',        label: 'Sales 30d',    sortable: true,  align: 'center', tip: 'Won opportunities in the last 30 days, with the change vs the prior 30 days.\nScore (15 pts): 10+ = 15 · 6–9 = 12 · 3–5 = 9 · 1–2 = 5 · 0 = 0.\nThe trend % is context only — not scored.' },
   { key: '_sig:tickets7d',     label: 'Tickets 7d',   sortable: true,  align: 'center', tip: 'Freshdesk support tickets created in the last 7 days (Freshdesk company = GHL location id).\nScore (15 pts): 0–1 = 15 · 2 = 12 · 3 = 8 · 4–5 = 4 · 6+ = 0.\nNo Freshdesk company → treated as 0 tickets.' },
   { key: 'lastActivity',       label: 'Last Meaningful', sortable: true, align: 'center', tip: 'Last Meaningful Activity — days since the most recent of: call · new contact created · won sale.\nContact updates are excluded (automations change contacts).\nFalls back to LC wallet charge month only if GHL returns nothing for the sub-account.' },
+  { key: '_notes',             label: 'Notes',        sortable: true,  align: 'center', tip: 'Date of the most recent team note on this account, with the number of notes. Hover the date to read the latest notes; open the account to add one.' },
   { key: '_healthScore',       label: 'Health',       sortable: true,  align: 'center', tip: '100-point score: Platform Activity 45 (7-day calls + last call) · Sales Activity 40 (last sale + sales in 30 days) · Account Health 15 (tickets in 7 days).\nBands: 70+ Healthy · 55–69 Watch · <55 At Risk. — = no GHL data.' },
 ]
 
@@ -136,6 +137,8 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
       let av, bv
       if (sortCol === '_healthScore') {
         av = a._health?.score ?? -1; bv = b._health?.score ?? -1
+      } else if (sortCol === '_notes') {
+        av = a._notes?.last?.created_at ?? ''; bv = b._notes?.last?.created_at ?? ''
       } else if (sortCol.startsWith('_sig:')) {
         const k = sortCol.slice(5)
         av = a._signals?.[k] ?? -1; bv = b._signals?.[k] ?? -1
@@ -394,6 +397,27 @@ export default function MasterAccountsTable({ accounts, dateFiltered = false, da
                       days={a.lastActivity}
                       isAccurate={a._lastActivitySource === 'ghl_contact'}
                     />
+                  </td>
+
+                  {/* Team notes — last note date; hover for the latest notes */}
+                  <td className="px-2 py-2 text-center whitespace-nowrap">
+                    {a._notes?.last ? (
+                      <InfoTip
+                        position="bottom-end"
+                        width={360}
+                        trigger={
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold" style={{ color: '#3a6b10' }}>
+                            {new Date(a._notes.last.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            <span className="num px-1 rounded-full border text-[9px]" style={{ borderColor: '#8CC63F40', background: '#8CC63F12' }}>{a._notes.count}</span>
+                          </span>
+                        }
+                        text={a._notes.recent.map(n =>
+                          `${n.author_name || n.author_email || 'Team'} · ${new Date(n.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}\n${n.body}`
+                        ).join('\n\n') + (a._notes.count > a._notes.recent.length ? `\n\n…and ${a._notes.count - a._notes.recent.length} more — open the account` : '')}
+                      />
+                    ) : (
+                      <span className="text-brand-border text-[10px]">—</span>
+                    )}
                   </td>
 
                   {/* Health Score */}

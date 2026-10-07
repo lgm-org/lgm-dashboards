@@ -131,6 +131,7 @@ export default function HealthFilterBar({ filters, setFilters, totalShowing, tot
             }}
           >
             <option value="all">All Billing</option>
+            <option value="active">Active (paying)</option>
             <option value="matched">Stripe Matched</option>
             <option value="unmatched">Unmatched (no Stripe)</option>
             <option value="past_due_or_open">Past Due or Open Invoice</option>

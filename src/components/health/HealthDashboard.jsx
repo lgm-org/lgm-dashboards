@@ -1,16 +1,14 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { format, subDays, startOfMonth, endOfMonth, subMonths, differenceInDays, parseISO, isValid } from 'date-fns'
 import { useMergedHealthData }    from '../../hooks/useMergedHealthData'
-import { useAccountStatus }       from '../../hooks/useAccountStatus'
 import { useDmAgentMap }          from '../../hooks/useDmAgentMap'
 import { useNewSalesMrr }         from '../../hooks/useNewSalesMrr'
 import { useAccountActions }      from '../../hooks/useAccountActions'
+import { useAccountNotesSummary } from '../../hooks/useAccountNotesSummary'
 import { useRole }                from '../../contexts/RoleContext'
 import { scoreAccount, classify, isAtRisk, recommendAction, isUpsellReady, suggestAddon, billableUsers } from '../../lib/healthEngine'
 import HealthFilterBar            from './HealthFilterBar'
 import HealthSummaryCards         from './HealthSummaryCards'
-import ResolutionTrackerHealth    from './ResolutionTrackerHealth'
-import NeedsAttentionTable        from './NeedsAttentionTable'
 import MasterAccountsTable        from './MasterAccountsTable'
 import HealthCharts               from './HealthCharts'
 import QuickWins                  from './QuickWins'
@@ -103,10 +101,10 @@ function ErrorBanner({ message, onRetry }) {
 export default function HealthDashboard({ filters, setFilters }) {
   const { isAdmin }             = useRole()
   const { accounts: raw, loading, stripeLoading, error, lastUpdated, refetch, activityStats } = useMergedHealthData()
-  const { statuses, setStatus } = useAccountStatus()
   const { dmMap, dmList, dmLoaded } = useDmAgentMap()
   const newSales                    = useNewSalesMrr()
   const { actions, setActionDone }  = useAccountActions()
+  const { notesByLocation, reloadNotes } = useAccountNotesSummary()
   const [selectedAccount, setSelectedAccount] = useState(null)
   // Deep link from the daily briefing emails: /?account=<ghlLocationId> opens that account's modal once data is loaded
   const deepLinkHandled = useRef(false)
@@ -124,7 +122,6 @@ export default function HealthDashboard({ filters, setFilters }) {
   const [activitySyncing, setActivitySyncing] = useState(false)
   const [activitySyncDone, setActivitySyncDone] = useState(false)
   const stripeStartRef = useRef(null)
-  const needsAttentionRef = useRef(null)
   const masterTableRef = useRef(null)
   const [freshdesk, setFreshdesk] = useState(null)
   const [ticketsModalFilter, setTicketsModalFilter] = useState(null) // null closed · 'open' | 'urgent' | 'all'
@@ -251,9 +248,9 @@ export default function HealthDashboard({ filters, setFilters }) {
       // This overrides Stripe price-detection and Cliff sheet for accounts in the footprint.
       // Same classification as the DM Footprint tab: listed under a DM → Agent, otherwise Direct
       const accountType = dmEntry?.dmName ? 'Agent' : 'Direct'
-      return { ...a, accountType, _health: { score, parts, band, action }, _dm: dmEntry, _actionMark: actions[a.id] || null }
+      return { ...a, accountType, _health: { score, parts, band, action }, _dm: dmEntry, _actionMark: actions[a.id] || null, _notes: notesByLocation[a.id] || null }
     }),
-    [raw, dmMap, actions]
+    [raw, dmMap, actions, notesByLocation]
   )
 
   // Apply filters
@@ -270,6 +267,7 @@ export default function HealthDashboard({ filters, setFilters }) {
       if (filters.typeFilter === 'direct'     &&  a._dm?.dmName) return false
       if (filters.dmFilter && filters.dmFilter !== 'all' && a._dm?.dmName !== filters.dmFilter) return false
       if (filters.bandFilter !== 'all' && a._health?.band !== filters.bandFilter) return false
+      if (billing === 'active'           && !(a._stripeBound && a.stripeStatus === 'active')) return false
       if (billing === 'matched'          && !a._stripeBound) return false
       if (billing === 'unmatched'        &&  a._stripeBound) return false
       if (billing === 'past_due_or_open' && a.stripeStatus !== 'past_due' && a.stripeStatus !== 'open_invoice') return false
@@ -645,7 +643,11 @@ export default function HealthDashboard({ filters, setFilters }) {
         onOpenTicketsClick={() => setTicketsModalFilter('open')}
         onPendingTicketsClick={() => setTicketsModalFilter('urgent')}
         onNewClientsClick={() => masterTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-        onNeedsCheckinClick={() => needsAttentionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        onNeedsCheckinClick={() => {
+          // Drill-downs always land on the All Accounts table (per John, 2026-10-08) — filtered to At Risk
+          setFilters(f => ({ ...f, bandFilter: 'at_risk' }))
+          setTimeout(() => masterTableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
+        }}
         isAdmin={isAdmin}
       />
 
@@ -680,18 +682,8 @@ export default function HealthDashboard({ filters, setFilters }) {
         />
       )}
 
-      {/* 4. Resolution tracker */}
-      <ResolutionTrackerHealth accounts={staleAccounts} statuses={statuses} />
-
-      {/* 5. Needs Attention — stale accounts with outreach tracking */}
-      <div ref={needsAttentionRef}>
-        <NeedsAttentionTable
-          accounts={staleAccounts}
-          statuses={statuses}
-          setStatus={setStatus}
-          onAccountClick={setSelectedAccount}
-        />
-      </div>
+      {/* Needs Attention table + resolution tracker retired 2026-10-08 (per John) — the At Risk band
+          filter on the All Accounts table replaces them; the shared "action taken" mark lives in the modal. */}
 
       {/* 6. Upsell table — admin only */}
       {isAdmin && (
@@ -800,7 +792,7 @@ export default function HealthDashboard({ filters, setFilters }) {
       {selectedAccount && (
         <AccountModal
           account={selectedAccount}
-          onClose={() => setSelectedAccount(null)}
+          onClose={() => { setSelectedAccount(null); reloadNotes() }}
           actions={actions}
           setActionDone={setActionDone}
         />
