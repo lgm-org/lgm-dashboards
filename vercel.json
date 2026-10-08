@@ -8,6 +8,9 @@
     },
     "api/field-audit.js": {
       "maxDuration": 300
+    },
+    "api/jarvis-team.js": {
+      "maxDuration": 180
     }
   },
   "crons": [

@@ -50,6 +50,29 @@ import CallDetailModal     from './components/modals/CallDetailModal'
 import EmployeeDetailModal from './components/modals/EmployeeDetailModal'
 import CoachingModal       from './components/modals/CoachingModal'
 import { ActiveCallsBar } from './components/ActiveCallsBar'
+import JarvisTeam from './components/jarvis/JarvisTeam'
+
+const VIEW_KEY = 'lgm-team-view'
+function ViewSwitcher({ view, setView }) {
+  const tabs = [{ id: 'dashboard', label: 'Dashboard' }, { id: 'jarvis', label: 'Jarvis', badge: 'AI' }]
+  return (
+    <div className="bg-white border-b border-brand-border">
+      <div className="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 flex items-center gap-1">
+        {tabs.map(t => {
+          const active = view === t.id
+          return (
+            <button key={t.id} onClick={() => setView(t.id)}
+              className={`relative px-4 py-2.5 text-[13px] font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 ${active ? 'text-brand-text' : 'text-brand-muted hover:text-brand-heading'}`}>
+              {t.label}
+              {t.badge && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white" style={{ background: '#8CC63F' }}>{t.badge}</span>}
+              {active && <span className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t-full" style={{ background: '#8CC63F' }} />}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 // ─── Loading / Error screens ──────────────────────────────────────────────────
 function LoadingScreen() {
@@ -118,6 +141,8 @@ function QCDashboard() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [employeeFilter, setEmployeeFilter] = useState('all')
   const [searchQuery, setSearchQuery]       = useState('')
+  const [view, setViewState] = useState(() => { try { return localStorage.getItem(VIEW_KEY) || 'dashboard' } catch { return 'dashboard' } })
+  const setView = useCallback(v => { setViewState(v); try { localStorage.setItem(VIEW_KEY, v) } catch {} }, [])
 
   const [modalStack, setModalStack] = useState([])
   const currentModal = modalStack.length > 0 ? modalStack[modalStack.length - 1] : null
@@ -205,8 +230,12 @@ const { calls, loading, error, lastUpdated, refetch, retrying } = useEmployeeHea
         onSignOut={() => { window.location.href = '/api/auth-team-logout' }}
       />
 
+      <ViewSwitcher view={view} setView={setView} />
       <ActiveCallsBar />
 
+      {view === 'jarvis' ? (
+        <JarvisTeam employees={allEmployees} />
+      ) : (
       <div className="max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
           {error && calls.length > 0 && (
@@ -279,6 +308,7 @@ const { calls, loading, error, lastUpdated, refetch, retrying } = useEmployeeHea
             </aside>
           </div>
         </div>
+      )}
 
       <footer className="mt-12 py-5 border-t border-brand-border text-center text-[11px] text-brand-muted/60 tracking-widest uppercase">
         Little Giant Marketing &mdash; Team AI Assistant
