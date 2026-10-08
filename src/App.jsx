@@ -164,7 +164,7 @@ const { calls, loading, error, lastUpdated, refetch, retrying } = useEmployeeHea
   }, [calls])
 
   const allEmployees = useMemo(() => {
-    const emps = new Set(calls.map(c => c.employee).filter(Boolean))
+    const emps = new Set(calls.map(c => c.employee).filter(e => e && e !== 'Unattributed'))
     return [...emps].sort()
   }, [calls])
 

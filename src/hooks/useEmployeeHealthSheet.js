@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { canonicalEmployee } from '../lib/employeeRoster'
 
 const SHEET_URL  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9TCj76T9TTEpUxfy26VgDxQt7fpoJiaTJ1n0ITwk477r8_EgC-2tYB7mnoXfVwtw5BxzFvY0uA1gv/pub?output=csv'
 const REFRESH_MS = 60_000
@@ -170,9 +171,11 @@ function buildRow(header, row, rowIdx) {
     if (key) obj[key] = (row[i] ?? '').trim()
   })
 
-  const emp = (obj.employee ?? '').trim()
+  // Only current team members are named; former staff / "None" / ambiguous guesses
+  // keep their calls in the totals but are not shown as employees.
+  const emp = canonicalEmployee(obj.employee) || 'Unattributed'
   const dt  = parseDate(obj.date ?? '')
-  if (!emp || !dt) return null
+  if (!dt) return null
 
   const overallScore   = parseScore(obj.overallScore)
   const frustratedFlag = parseBool(obj.frustratedFlag)

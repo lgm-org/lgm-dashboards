@@ -3,6 +3,8 @@
 // transcript sheet n8n writes alongside it (full transcript keyed by Meeting ID).
 // Both are fetched server-side and cached per warm instance.
 
+import { canonicalEmployee } from '../src/lib/employeeRoster.js'
+
 const QC_CSV_URL =
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9TCj76T9TTEpUxfy26VgDxQt7fpoJiaTJ1n0ITwk477r8_EgC-2tYB7mnoXfVwtw5BxzFvY0uA1gv/pub?output=csv'
 const TRANSCRIPT_CSV_URL =
@@ -70,7 +72,7 @@ function normaliseCall(r, idx) {
     rowIdx: idx,
     date: toISODate(r['Date']),
     time: r['Time'] || '',
-    employee: r['Employee'] || 'Unknown',
+    employee: canonicalEmployee(r['Employee']) || 'Unattributed',
     customer: r['Customer'] || 'Unknown',
     category: r['Category'] || '',
     callType,

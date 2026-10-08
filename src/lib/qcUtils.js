@@ -48,6 +48,7 @@ export function aggregateEmployees(calls) {
   const map = {}
   const sorted = [...calls].sort((a, b) => a.date.localeCompare(b.date))
   for (const call of sorted) {
+    if (call.employee === 'Unattributed') continue
     if (!map[call.employee]) {
       map[call.employee] = {
         name: call.employee,
@@ -121,7 +122,7 @@ export function aggregateCustomers(calls) {
       c.latestSentiment = call.sentiment
       c.riskLevel       = call.riskLevel || c.riskLevel
     }
-    if (call.employee) c.employees.add(call.employee)
+    if (call.employee && call.employee !== 'Unattributed') c.employees.add(call.employee)
   }
 
   return Object.values(map).map(c => {
