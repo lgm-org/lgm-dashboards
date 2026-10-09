@@ -32,12 +32,39 @@ function parseInline(text) {
   return parts
 }
 
+function splitRow(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim())
+}
+const isSeparatorRow = line => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line)
+
+function Table({ rows }) {
+  const [head, ...body] = rows
+  return (
+    <div className="overflow-x-auto my-3 rounded-xl border border-brand-border">
+      <table className="w-full text-[12px]">
+        <thead className="bg-brand-bg">
+          <tr>{head.map((c, i) => <th key={i} className="text-left px-3 py-2 font-semibold text-brand-heading whitespace-nowrap">{parseInline(c)}</th>)}</tr>
+        </thead>
+        <tbody className="divide-y divide-brand-border">
+          {body.map((r, i) => (
+            <tr key={i} className={i % 2 ? 'bg-brand-bg/40' : ''}>
+              {head.map((_, j) => <td key={j} className="px-3 py-2 align-top text-brand-text">{parseInline(r[j] ?? '')}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// Paragraphs, #-headers (rendered as bold lead lines), bullet / numbered lists,
+// > blockquotes (transcript quotes), | tables |, --- rules, inline links/bold/code.
 export function MarkdownText({ text }) {
   if (!text) return null
   const lines = text.split('\n')
   const out = []
-  let list = [], listType = null, key = 0
-  const flush = () => {
+  let list = [], listType = null, quote = [], table = [], key = 0
+  const flushList = () => {
     if (!list.length) return
     const Tag = listType === 'ol' ? 'ol' : 'ul'
     out.push(<Tag key={key++} className={`my-1 pl-5 space-y-0.5 ${Tag === 'ol' ? 'list-decimal' : 'list-disc'}`}>
@@ -45,20 +72,45 @@ export function MarkdownText({ text }) {
     </Tag>)
     list = []; listType = null
   }
+  const flushQuote = () => {
+    if (!quote.length) return
+    out.push(<blockquote key={key++} className="my-2 pl-3 border-l-[3px] border-brand-green/60 text-brand-text/90 italic space-y-0.5">
+      {quote.map((q, i) => <p key={i} className="leading-relaxed">{parseInline(q)}</p>)}
+    </blockquote>)
+    quote = []
+  }
+  const flushTable = () => {
+    if (table.length) out.push(<Table key={key++} rows={table} />)
+    table = []
+  }
+  const flushAll = () => { flushList(); flushQuote(); flushTable() }
+
   for (const raw of lines) {
+    // tables: consecutive lines that contain pipes (separator rows are skipped)
+    if (/^\s*\|.*\|\s*$/.test(raw)) {
+      flushList(); flushQuote()
+      if (!isSeparatorRow(raw)) table.push(splitRow(raw))
+      continue
+    }
+    if (table.length) flushTable()
+
+    const q = raw.match(/^\s*>\s?(.*)$/)
+    if (q) { flushList(); quote.push(q[1]); continue }
+    if (quote.length) flushQuote()
+
     const stripped = raw.replace(/^#{1,4}\s+/, '')
     const wasHeader = raw !== stripped
-    const bullet = stripped.match(/^[-•*]\s+(.+)/)
-    const numbed = stripped.match(/^\d+\.\s+(.+)/)
-    if (bullet) { if (listType !== 'ul') { flush(); listType = 'ul' } list.push(bullet[1]); continue }
-    if (numbed) { if (listType !== 'ol') { flush(); listType = 'ol' } list.push(numbed[1]); continue }
-    flush()
+    const bullet = stripped.match(/^\s*[-•*]\s+(.+)/)
+    const numbed = stripped.match(/^\s*\d+[.)]\s+(.+)/)
+    if (bullet) { if (listType !== 'ul') { flushList(); listType = 'ul' } list.push(bullet[1]); continue }
+    if (numbed) { if (listType !== 'ol') { flushList(); listType = 'ol' } list.push(numbed[1]); continue }
+    flushList()
     if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(stripped)) { out.push(<hr key={key++} className="my-3 border-brand-border" />); continue }
     if (!stripped.trim()) { out.push(<div key={key++} className="h-2" />); continue }
     out.push(<p key={key++} className={`leading-relaxed ${wasHeader ? 'font-semibold mt-2' : ''}`}>{parseInline(stripped)}</p>)
   }
-  flush()
-  return <div className="space-y-0.5">{out}</div>
+  flushAll()
+  return <div className="space-y-0.5 break-words">{out}</div>
 }
 
 // ── Chart block ───────────────────────────────────────────────────────────────

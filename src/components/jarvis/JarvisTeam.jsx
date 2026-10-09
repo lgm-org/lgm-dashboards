@@ -7,12 +7,14 @@ import { MessageBubble, HistorySidebar, JarvisAvatar } from './JarvisUI'
 
 const G = '#8CC63F'
 const HISTORY_NS = 'team:' // keeps Team Intelligence chats apart from the Customer Health Jarvis in the same table
+// Header (60) + view switcher (41); the active-calls bar, when present, adds a little and is tolerated
+const CHROME_PX = 101
 
 const RANGES = [
   { id: 'yesterday', label: 'Yesterday' },
-  { id: '7d',  label: 'Last 7 days' },
-  { id: '30d', label: 'Last 30 days' },
-  { id: '90d', label: 'Last 90 days' },
+  { id: '7d',  label: '7 days' },
+  { id: '30d', label: '30 days' },
+  { id: '90d', label: '90 days' },
   { id: 'all', label: 'All time' },
   { id: 'custom', label: 'Custom' },
 ]
@@ -28,6 +30,15 @@ function rangeDates(range, custom) {
     case 'custom': return { date_from: custom.from || undefined, date_to: custom.to || undefined }
     default: return {}
   }
+}
+
+function scopeSummary(scope) {
+  const parts = [RANGES.find(r => r.id === scope.range)?.label || 'All time']
+  if (scope.range === 'custom' && (scope.custom.from || scope.custom.to)) parts[0] = `${scope.custom.from || '…'} → ${scope.custom.to || '…'}`
+  if (scope.callType !== 'all') parts.push(scope.callType === 'Meeting' ? 'meetings' : 'phone calls')
+  if (scope.employees.length) parts.push(scope.employees.length === 1 ? scope.employees[0] : `${scope.employees.length} employees`)
+  if (scope.customer.trim()) parts.push(`“${scope.customer.trim()}”`)
+  return parts.join(' · ')
 }
 
 function getUserEmail() {
@@ -52,14 +63,55 @@ function greeting(email) {
   return first ? `${part}, ${first.charAt(0).toUpperCase()}${first.slice(1)}` : part
 }
 
-const INTRO = "I'm Jarvis. I've read every recorded customer call and meeting — ask me about coaching, training needs, customer risk, revenue signals, commitments, or what happened this week. Every answer cites the conversations it comes from."
+// ── Small controls ────────────────────────────────────────────────────────────
+function useClickOutside(ref, onClose) {
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) onClose() }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [ref, onClose])
+}
 
-// ── Scope bar ─────────────────────────────────────────────────────────────────
-function ScopeBar({ scope, setScope, employees, compact }) {
-  const toggleEmp = name => setScope(s => ({ ...s, employees: s.employees.includes(name) ? s.employees.filter(e => e !== name) : [...s.employees, name] }))
+function EmployeePicker({ employees, selected, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState('')
+  const ref = useRef(null)
+  useClickOutside(ref, useCallback(() => setOpen(false), []))
+  const shown = employees.filter(e => e.toLowerCase().includes(q.toLowerCase()))
+  const toggle = name => onChange(selected.includes(name) ? selected.filter(e => e !== name) : [...selected, name])
   return (
-    <div className={`flex flex-wrap items-center gap-2 ${compact ? '' : 'bg-white border border-brand-border rounded-2xl p-3'}`}>
-      <div className="flex items-center gap-0.5 bg-brand-bg border border-brand-border rounded-lg p-0.5">
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(v => !v)}
+        className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border transition-all ${selected.length ? 'text-white border-transparent' : 'bg-brand-bg text-brand-text border-brand-border hover:border-brand-green'}`}
+        style={selected.length ? { background: G } : {}}>
+        {selected.length ? `${selected.length} employee${selected.length > 1 ? 's' : ''}` : 'All employees'} ▾
+      </button>
+      {open && (
+        <div className="absolute z-40 mt-1 left-0 w-64 max-w-[calc(100vw-2rem)] bg-white border border-brand-border rounded-xl shadow-lg p-2">
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
+            className="w-full text-[11px] border border-brand-border rounded-lg px-2 py-1.5 mb-2 focus:outline-none focus:border-brand-green" />
+          <div className="max-h-56 overflow-y-auto space-y-0.5">
+            {shown.map(name => (
+              <label key={name} className="flex items-center gap-2 text-[12px] text-brand-text px-2 py-1 rounded-lg hover:bg-brand-bg cursor-pointer">
+                <input type="checkbox" checked={selected.includes(name)} onChange={() => toggle(name)} className="accent-[#8CC63F]" />
+                <span className="truncate">{name}</span>
+              </label>
+            ))}
+            {!shown.length && <p className="text-[11px] text-brand-muted px-2 py-2">No matches</p>}
+          </div>
+          {selected.length > 0 && (
+            <button onClick={() => onChange([])} className="mt-2 w-full text-[11px] text-brand-muted hover:text-brand-heading py-1">Clear selection</button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ScopeBar({ scope, setScope, employees }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-0.5 bg-brand-bg border border-brand-border rounded-lg p-0.5 overflow-x-auto max-w-full">
         {RANGES.map(r => (
           <button key={r.id} onClick={() => setScope(s => ({ ...s, range: r.id }))}
             className={`px-2.5 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap transition-all ${scope.range === r.id ? 'text-white' : 'text-brand-muted hover:text-brand-text hover:bg-white'}`}
@@ -83,23 +135,9 @@ function ScopeBar({ scope, setScope, employees, compact }) {
         <option value="Phone Call">Phone calls only</option>
         <option value="Meeting">Meetings only</option>
       </select>
+      <EmployeePicker employees={employees} selected={scope.employees} onChange={v => setScope(s => ({ ...s, employees: v }))} />
       <input value={scope.customer} onChange={e => setScope(s => ({ ...s, customer: e.target.value }))} placeholder="Customer / account…"
         className="text-[11px] border border-brand-border rounded-lg px-2.5 py-1.5 bg-brand-bg text-brand-text w-40 focus:outline-none focus:border-brand-green" />
-      <div className="flex flex-wrap items-center gap-1">
-        {employees.map(name => {
-          const on = scope.employees.includes(name)
-          return (
-            <button key={name} onClick={() => toggleEmp(name)}
-              className={`text-[10px] px-2 py-1 rounded-full border transition-all ${on ? 'text-white border-transparent' : 'bg-white text-brand-muted border-brand-border hover:border-brand-green hover:text-brand-green'}`}
-              style={on ? { background: G } : {}}>
-              {name.split(' ')[0]}
-            </button>
-          )
-        })}
-        {scope.employees.length > 0 && (
-          <button onClick={() => setScope(s => ({ ...s, employees: [] }))} className="text-[10px] text-brand-muted underline ml-1">clear</button>
-        )}
-      </div>
     </div>
   )
 }
@@ -108,50 +146,43 @@ function ScopeBar({ scope, setScope, employees, compact }) {
 function CopyButton({ text }) {
   const [done, setDone] = useState(false)
   return (
-    <button title="Copy prompt" onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200) }}
-      className="opacity-0 group-hover:opacity-100 text-[10px] text-brand-muted hover:text-brand-heading px-1.5 py-0.5 rounded border border-transparent hover:border-brand-border flex-shrink-0 transition-all">
+    <button title="Copy prompt" aria-label="Copy prompt"
+      onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200) }}
+      className="text-[10px] text-brand-muted hover:text-brand-heading px-1.5 py-0.5 rounded border border-brand-border/60 hover:border-brand-border bg-white flex-shrink-0 transition-all">
       {done ? 'Copied' : 'Copy'}
     </button>
   )
 }
 
-function PromptLibrary({ onPick }) {
-  const [open, setOpen] = useState(null)
+function PromptLibrary({ onPick, disabled }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-      {PROMPT_LIBRARY.map(cat => {
-        const expanded = open === cat.id
-        return (
-          <div key={cat.id} className={`bg-white border border-brand-border rounded-2xl p-4 flex flex-col ${expanded ? 'sm:col-span-2 xl:col-span-2' : ''}`}
-            style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.05)', borderTop: `3px solid ${cat.color}` }}>
-            <button onClick={() => setOpen(expanded ? null : cat.id)} className="text-left">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">{cat.icon}</span>
-                <span className="text-[13px] font-bold text-brand-heading">{cat.title}</span>
-                <span className="ml-auto text-[10px] text-brand-muted">{expanded ? 'hide' : `${cat.prompts.length} prompts`}</span>
-              </div>
-              <p className="text-[11px] text-brand-muted mt-1 leading-snug">{cat.goal}</p>
-            </button>
-            {expanded && (
-              <ul className="mt-3 space-y-1.5">
-                {cat.prompts.map((p, i) => (
-                  <li key={i} className="group flex items-start gap-2 rounded-xl border border-brand-border hover:border-brand-green bg-brand-bg/40 px-3 py-2 cursor-pointer transition-colors"
-                    onClick={() => onPick(p)}>
-                    <span className="text-[12px] text-brand-text leading-snug flex-1">{p}</span>
-                    <CopyButton text={p} />
-                  </li>
-                ))}
-              </ul>
-            )}
-            {!expanded && (
-              <button onClick={() => onPick(cat.prompts[0])}
-                className="mt-3 text-left text-[11px] text-brand-text bg-brand-bg/60 border border-brand-border rounded-xl px-3 py-2 hover:border-brand-green transition-colors line-clamp-2">
-                {cat.prompts[0]}
-              </button>
-            )}
+    <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-3">
+      {PROMPT_LIBRARY.map(cat => (
+        <section key={cat.id} className="bg-white border border-brand-border rounded-2xl flex flex-col overflow-hidden"
+          style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.05)', borderTop: `3px solid ${cat.color}` }}>
+          <div className="px-4 pt-3 pb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-lg leading-none">{cat.icon}</span>
+              <h3 className="text-[13px] font-bold text-brand-heading">{cat.title}</h3>
+            </div>
+            <p className="text-[11px] text-brand-muted mt-1 leading-snug">{cat.goal}</p>
           </div>
-        )
-      })}
+          {/* Every prompt in full, scrollable when the card runs out of room */}
+          <ul className="px-3 pb-3 space-y-1.5 overflow-y-auto" style={{ maxHeight: 300 }}>
+            {cat.prompts.map((p, i) => (
+              <li key={i}>
+                <div role="button" tabIndex={0} aria-disabled={disabled}
+                  onClick={() => !disabled && onPick(p)}
+                  onKeyDown={e => { if (!disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onPick(p) } }}
+                  className={`flex items-start gap-2 rounded-xl border border-brand-border bg-brand-bg/40 px-3 py-2 transition-colors ${disabled ? 'opacity-60 cursor-not-allowed' : 'hover:border-brand-green hover:bg-white cursor-pointer'}`}>
+                  <span className="text-[12px] text-brand-text leading-snug flex-1 whitespace-normal break-words">{p}</span>
+                  <CopyButton text={p} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   )
 }
@@ -166,6 +197,7 @@ export default function JarvisTeam({ employees = [] }) {
   const [input, setInput]         = useState('')
   const [loading, setLoading]     = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [showScope, setShowScope] = useState(false)
   const [chatId, setChatId]       = useState(null)
   const [chatList, setChatList]   = useState([])
   const bottomRef = useRef(null)
@@ -186,7 +218,16 @@ export default function JarvisTeam({ employees = [] }) {
     } catch {}
   }, [historyKey])
   useEffect(() => { loadHistory() }, [loadHistory])
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [messages])
+
+  // Textarea grows with its content up to a cap
+  const autosize = () => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+  }
+  useEffect(autosize, [input])
 
   const saveChat = useCallback(async (msgs, cid, title) => {
     const stored = msgs.map(m => ({ role: m.role, content: m.content }))
@@ -240,6 +281,10 @@ export default function JarvisTeam({ employees = [] }) {
           }
         }
       }
+      if (!finalContent) {
+        finalContent = 'The connection dropped before Jarvis finished. Please ask again.'
+        setMessages(prev => { const c = [...prev]; c[c.length - 1] = { role: 'assistant', content: finalContent }; return c })
+      }
     } catch (err) {
       finalContent = `Couldn't reach Jarvis — ${err.message}`
       setMessages(prev => { const c = [...prev]; c[c.length - 1] = { role: 'assistant', content: finalContent }; return c })
@@ -259,6 +304,7 @@ export default function JarvisTeam({ employees = [] }) {
       if (!data?.messages) return
       setChatId(id)
       setMessages(data.messages.map(m => ({ role: m.role, content: m.content })))
+      setShowHistory(false)
     } catch {}
   }
   async function deleteChat(id) {
@@ -268,52 +314,69 @@ export default function JarvisTeam({ employees = [] }) {
       if (id === chatId) newChat()
     } catch {}
   }
-  function newChat() { setChatId(null); setMessages([]); setInput(''); inputRef.current?.focus() }
+  function newChat() { setChatId(null); setMessages([]); setInput(''); setShowHistory(false); setTimeout(() => inputRef.current?.focus(), 0) }
 
   const inChat = messages.length > 0
 
   return (
-    <div className="flex" style={{ minHeight: 'calc(100vh - 110px)' }}>
+    <div className="relative flex bg-brand-bg" style={{ height: `calc(100vh - ${CHROME_PX}px)` }}>
+
+      {/* History — drawer on small screens, column on large */}
       {showHistory && (
-        <div className="w-60 flex-shrink-0 border-r border-brand-border bg-white">
-          <HistorySidebar chats={chatList} currentId={chatId} onSelect={selectChat} onDelete={deleteChat} onNewChat={newChat} />
-        </div>
+        <>
+          <div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={() => setShowHistory(false)} />
+          <aside className="fixed inset-y-0 left-0 z-40 w-72 bg-white border-r border-brand-border lg:static lg:z-auto lg:w-64 lg:flex-shrink-0">
+            <HistorySidebar chats={chatList} currentId={chatId} onSelect={selectChat} onDelete={deleteChat} onNewChat={newChat} />
+          </aside>
+        </>
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
+        {/* Top bar */}
+        <div className="flex-shrink-0 border-b border-brand-border bg-white/80 backdrop-blur">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-2 flex flex-wrap items-center gap-2">
+            <button onClick={() => setShowHistory(v => !v)}
+              className={`text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-all ${showHistory ? 'text-white border-transparent' : 'bg-white text-brand-muted border-brand-border hover:border-brand-green hover:text-brand-green'}`}
+              style={showHistory ? { background: G } : {}}>
+              History{chatList.length ? ` (${chatList.length})` : ''}
+            </button>
+            {inChat && (
+              <button onClick={newChat} className="text-[11px] font-medium px-3 py-1.5 rounded-lg border border-brand-border bg-white text-brand-muted hover:border-brand-green hover:text-brand-green transition-all">
+                + New conversation
+              </button>
+            )}
+            <div className="ml-auto flex items-center gap-2 min-w-0">
+              <span className="hidden sm:block text-[11px] text-brand-muted truncate max-w-[40vw]">Scope: <span className="text-brand-heading font-medium">{scopeSummary(scope)}</span></span>
+              <button onClick={() => setShowScope(v => !v)}
+                className={`text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-all ${showScope ? 'text-white border-transparent' : 'bg-white text-brand-muted border-brand-border hover:border-brand-green hover:text-brand-green'}`}
+                style={showScope ? { background: G } : {}}>
+                {showScope ? 'Done' : 'Change scope'}
+              </button>
+            </div>
+          </div>
+          {(showScope || !inChat) && (
+            <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-3">
+              <ScopeBar scope={scope} setScope={setScope} employees={employees} />
+            </div>
+          )}
+        </div>
+
+        {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5">
-
-            {/* Top bar */}
-            <div className="flex items-center gap-2 mb-4">
-              <button onClick={() => setShowHistory(v => !v)}
-                className={`text-[11px] font-medium px-3 py-1.5 rounded-lg border transition-all ${showHistory ? 'text-white border-transparent' : 'bg-white text-brand-muted border-brand-border hover:border-brand-green hover:text-brand-green'}`}
-                style={showHistory ? { background: G } : {}}>
-                History
-              </button>
-              {inChat && (
-                <button onClick={newChat} className="text-[11px] font-medium px-3 py-1.5 rounded-lg border border-brand-border bg-white text-brand-muted hover:border-brand-green hover:text-brand-green transition-all">
-                  + New conversation
-                </button>
-              )}
-              {inChat && <div className="ml-auto"><ScopeBar scope={scope} setScope={setScope} employees={employees} compact /></div>}
-            </div>
-
             {!inChat ? (
               <>
                 <div className="flex items-start gap-4 mb-5">
                   <JarvisAvatar size={48} />
-                  <div>
+                  <div className="min-w-0">
                     <h1 className="text-2xl font-extrabold text-brand-heading leading-tight">{greeting(userEmail)}</h1>
-                    <p className="text-sm text-brand-muted mt-1 max-w-2xl">What would you like to know about your business? {INTRO}</p>
+                    <p className="text-sm text-brand-muted mt-1 max-w-2xl">
+                      What would you like to know about your business? I've read every recorded customer call and meeting — ask about coaching, training needs, customer risk, revenue signals, commitments, or what happened this week. Every answer cites the conversations it comes from.
+                    </p>
                   </div>
                 </div>
-                <div className="mb-5">
-                  <p className="text-[10px] font-bold text-brand-muted uppercase tracking-wider mb-2">Scope for your questions</p>
-                  <ScopeBar scope={scope} setScope={setScope} employees={employees} />
-                </div>
                 <p className="text-[10px] font-bold text-brand-muted uppercase tracking-wider mb-2">Prompt library — click a question to run it, or write your own below</p>
-                <PromptLibrary onPick={p => handleSend(p)} />
+                <PromptLibrary onPick={p => handleSend(p)} disabled={loading} />
               </>
             ) : (
               <>
@@ -324,23 +387,25 @@ export default function JarvisTeam({ employees = [] }) {
           </div>
         </div>
 
-        {/* Input */}
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-5 pt-2 w-full">
-          <div className="flex gap-2 bg-white border border-brand-border rounded-2xl px-4 py-3" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-              placeholder="Ask about meetings, customer calls, employee performance, training opportunities…"
-              rows={1} disabled={loading}
-              className="flex-1 resize-none text-sm text-brand-text placeholder-brand-muted/60 outline-none bg-transparent leading-relaxed" style={{ maxHeight: 140 }} />
-            <button onClick={() => handleSend()} disabled={!input.trim() || loading}
-              className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all disabled:opacity-40"
-              style={{ background: 'linear-gradient(135deg, #8CC63F, #6aab2e)' }} aria-label="Send">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            </button>
+        {/* Input — always visible at the bottom */}
+        <div className="flex-shrink-0 border-t border-brand-border bg-brand-bg">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 w-full">
+            <div className="flex items-end gap-2 bg-white border border-brand-border rounded-2xl px-4 py-2.5" style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+              <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+                placeholder={loading ? 'Jarvis is working…' : 'Ask about meetings, customer calls, employee performance, training opportunities…'}
+                rows={1} disabled={loading}
+                className="flex-1 resize-none text-sm text-brand-text placeholder-brand-muted/60 outline-none bg-transparent leading-relaxed py-1 disabled:cursor-not-allowed" />
+              <button onClick={() => handleSend()} disabled={!input.trim() || loading}
+                className="flex-shrink-0 w-8 h-8 mb-0.5 rounded-xl flex items-center justify-center transition-all disabled:opacity-40"
+                style={{ background: 'linear-gradient(135deg, #8CC63F, #6aab2e)' }} aria-label="Send">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+            </div>
+            <p className="text-center text-[10px] text-brand-muted/50 mt-1.5">
+              Answers take about a minute and cite the calls they come from. Jarvis separates what was said from what it infers — a promise in a transcript is not proof it was done.
+            </p>
           </div>
-          <p className="text-center text-[10px] text-brand-muted/50 mt-1.5">
-            Answers cite the calls they come from. Jarvis separates what was said from what it infers — a promise in a transcript is not proof it was done.
-          </p>
         </div>
       </div>
     </div>
