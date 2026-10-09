@@ -53,6 +53,7 @@ export function MarkdownText({ text }) {
     if (bullet) { if (listType !== 'ul') { flush(); listType = 'ul' } list.push(bullet[1]); continue }
     if (numbed) { if (listType !== 'ol') { flush(); listType = 'ol' } list.push(numbed[1]); continue }
     flush()
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(stripped)) { out.push(<hr key={key++} className="my-3 border-brand-border" />); continue }
     if (!stripped.trim()) { out.push(<div key={key++} className="h-2" />); continue }
     out.push(<p key={key++} className={`leading-relaxed ${wasHeader ? 'font-semibold mt-2' : ''}`}>{parseInline(stripped)}</p>)
   }
