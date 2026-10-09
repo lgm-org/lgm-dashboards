@@ -125,12 +125,17 @@ function ChartBlock({ spec }) {
   )
 }
 
+const MIME = { csv: 'text/csv', md: 'text/markdown', txt: 'text/plain', json: 'application/json', html: 'text/html' }
+
+// Handles ```csv-download and ```file-download blocks (csv, md, txt, json, html)
 function CsvDownloadBlock({ spec }) {
   const { filename = 'report.csv', content = '' } = spec
   const [done, setDone] = useState(false)
-  const rows = content.split('\n').filter(Boolean).length
+  const ext = (filename.split('.').pop() || 'txt').toLowerCase()
+  const rows = ext === 'csv' ? content.split('\n').filter(Boolean).length : null
+  const size = content.length > 1024 ? `${(content.length / 1024).toFixed(1)} KB` : `${content.length} chars`
   function download() {
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+    const blob = new Blob([content], { type: `${MIME[ext] || 'text/plain'};charset=utf-8;` })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = filename
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
@@ -140,7 +145,7 @@ function CsvDownloadBlock({ spec }) {
     <div className="bg-brand-bg/40 border border-brand-border rounded-xl px-4 py-3 my-3 flex items-center gap-3">
       <div className="flex-1 min-w-0">
         <p className="text-[12px] font-medium text-brand-heading truncate">{filename}</p>
-        <p className="text-[10px] text-brand-muted">{rows > 1 ? `${rows - 1} rows · ` : ''}CSV</p>
+        <p className="text-[10px] text-brand-muted">{rows > 1 ? `${rows - 1} rows · ` : ''}{ext.toUpperCase()} · {size}</p>
       </div>
       <button onClick={download} className="text-[11px] font-semibold px-3 py-1.5 rounded-lg border transition-all"
         style={{ background: done ? '#f0f9e8' : '#8CC63F', color: done ? '#8CC63F' : 'white', borderColor: '#8CC63F' }}>
@@ -153,7 +158,7 @@ function CsvDownloadBlock({ spec }) {
 export function RichContent({ text }) {
   if (!text) return null
   const parts = []
-  const regex = /```(chart|csv-download)\s*([\s\S]*?)```/g
+  const regex = /```(chart|csv-download|file-download)\s*([\s\S]*?)```/g
   let last = 0, m
   while ((m = regex.exec(text)) !== null) {
     if (m.index > last) parts.push({ type: 'text', content: text.slice(last, m.index) })
@@ -165,7 +170,7 @@ export function RichContent({ text }) {
     <div>
       {parts.map((p, i) =>
         p.type === 'chart' ? <ChartBlock key={i} spec={p.spec} />
-        : p.type === 'csv-download' ? <CsvDownloadBlock key={i} spec={p.spec} />
+        : (p.type === 'csv-download' || p.type === 'file-download') ? <CsvDownloadBlock key={i} spec={p.spec} />
         : <MarkdownText key={i} text={p.content} />
       )}
     </div>

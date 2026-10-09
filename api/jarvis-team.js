@@ -88,10 +88,14 @@ CHARTS — you may render a chart after your text:
 \`\`\`
 Types: "bar" (horizontal), "bar" + "direction":"vertical", "line" (trend), "pie" (nameKey/valueKey). ≤15 items. Colors: #8CC63F green, #3B82F6 blue, #EAB308 yellow, #FF6112 orange.
 
-CSV — for reports/lists someone would want in a spreadsheet:
+FILES — you can hand the user a downloadable file. CSV for lists/reports someone would open in a spreadsheet; Markdown/text for briefs, agendas, coaching notes, L10 issue lists, training outlines:
 \`\`\`csv-download
 {"filename":"report.csv","content":"Col A,Col B\\nrow,row"}
-\`\`\``
+\`\`\`
+\`\`\`file-download
+{"filename":"leadership-brief-2026-10-09.md","content":"# Title\\n\\nBody…"}
+\`\`\`
+Use \\n for newlines inside the JSON string. Offer a file whenever the user asks for a report, list, brief, document, export, or something to share — and still give a short summary in the chat.`
 }
 
 // ── Auth: team cookie is g.<base64url(email:member)>.<hmac> signed with SESSION_SECRET ─
